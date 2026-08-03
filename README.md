@@ -18,12 +18,12 @@ Use it only with devices and networks you own or are explicitly authorized to ad
 Prerequisites: Windows 10/11, Node.js 20 or newer, Tailscale with Funnel enabled, and Android 11 or newer.
 
 ```powershell
-npm install -g github:heelee912/android-remote-lab
+npm install -g https://github.com/heelee912/android-remote-lab/releases/latest/download/android-remote-lab.tgz
 arlab setup --system
 arlab skill install
 ```
 
-Git-based npm installation rebuilds the windowless launcher locally from the checked-out C# source and validates its source/executable manifest. Release tarballs use the GitHub Actions rebuild and provenance path.
+The release tarball contains a windowless launcher rebuilt by GitHub Actions, validates its source/executable manifest during installation, and has published SHA-256 and build provenance. A source installation over Git must use HTTPS rather than the `github:` SSH shorthand on machines without GitHub credentials.
 
 `--system` installs a startup task and requires an elevated terminal. Without elevation, use `arlab setup`; the relay then starts at user logon. Setup prints the DNS host and port to enter in the Android app.
 

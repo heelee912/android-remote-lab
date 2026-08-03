@@ -3,7 +3,7 @@
 ## PC And Skill
 
 ```powershell
-npm install -g github:heelee912/android-remote-lab
+npm install -g https://github.com/heelee912/android-remote-lab/releases/latest/download/android-remote-lab.tgz
 arlab setup --system
 arlab skill install
 arlab doctor --repair --json
