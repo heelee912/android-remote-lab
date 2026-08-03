@@ -210,6 +210,8 @@ const ingress = net.createServer((socket) => {
         lastPongAt: Date.now(),
         keyguardLocked: null,
         accessibilityReady: null,
+        versionCode: null,
+        versionName: null,
       };
       sequence = 0;
       sendFrame(socket, { type: 'auth_ok', sessionId: crypto.randomUUID() });
@@ -222,6 +224,8 @@ const ingress = net.createServer((socket) => {
         active.lastPongAt = Date.now();
         if (typeof frame.keyguardLocked === 'boolean') active.keyguardLocked = frame.keyguardLocked;
         if (typeof frame.accessibilityReady === 'boolean') active.accessibilityReady = frame.accessibilityReady;
+        if (Number.isSafeInteger(frame.versionCode) && frame.versionCode > 0) active.versionCode = frame.versionCode;
+        if (typeof frame.versionName === 'string' && frame.versionName.length <= 64) active.versionName = frame.versionName;
       }
       return;
     }
@@ -376,6 +380,8 @@ const api = http.createServer(async (request, response) => {
           lastPongAt: new Date(active.lastPongAt).toISOString(),
           keyguardLocked: active.keyguardLocked,
           accessibilityReady: active.accessibilityReady,
+          versionCode: active.versionCode,
+          versionName: active.versionName,
         } : null,
         controlLease: controlLease ? {
           expiresAt: new Date(controlLease.expiresAt).toISOString(),

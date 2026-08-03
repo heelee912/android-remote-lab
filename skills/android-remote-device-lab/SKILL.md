@@ -64,7 +64,7 @@ arlab device install '<absolute-apk-path>' --json
 arlab device install-status --json
 ```
 
-Require Companion `versionCode >= 6` before using this path. Treat `INSTALL_PERMISSION_REQUIRED`, `SUBMITTED`, `pending-user-action`, `success`, and `failed` as distinct states. A transfer or submission is never proof of installation. When Android shows a confirmation surface, capture a fresh snapshot, complete only the explicitly authorized install, and poll until the authoritative status is `success` before launching the target package.
+Require Companion `versionCode >= 7` before using this path. Treat `INSTALL_PERMISSION_REQUIRED`, `SUBMITTED`, `pending-user-action`, `success`, and `failed` as distinct states. A transfer or submission is never proof of installation. When Android shows a confirmation surface, capture a fresh snapshot, complete only the explicitly authorized install, and poll until the authoritative status is `success` before launching the target package.
 
 ## Report Evidence
 

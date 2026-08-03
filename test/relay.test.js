@@ -167,11 +167,14 @@ async function main() {
     assert.equal(second.auth.type, 'auth_ok');
     second.socket.write(frame({
       type: 'pong', sentAt: Date.now(), keyguardLocked: false, accessibilityReady: true,
+      versionCode: 7, versionName: '1.1.1',
     }));
     await delay(50);
     const deviceReadiness = await request(apiPort, token, 'GET', '/status');
     assert.equal(deviceReadiness.body.active.keyguardLocked, false);
     assert.equal(deviceReadiness.body.active.accessibilityReady, true);
+    assert.equal(deviceReadiness.body.active.versionCode, 7);
+    assert.equal(deviceReadiness.body.active.versionName, '1.1.1');
     const owner = 'test-thread';
     const startLeasePromise = request(apiPort, token, 'POST', '/control/start', {
       durationMillis: 120_000, owner,

@@ -23,6 +23,8 @@ arlab setup --system
 arlab skill install
 ```
 
+Git-based npm installation rebuilds the windowless launcher locally from the checked-out C# source and validates its source/executable manifest. Release tarballs use the GitHub Actions rebuild and provenance path.
+
 `--system` installs a startup task and requires an elevated terminal. Without elevation, use `arlab setup`; the relay then starts at user logon. Setup prints the DNS host and port to enter in the Android app.
 
 Install `remote-companion.apk` from the latest GitHub release, enter the endpoint, enable its Accessibility service, and keep the intended Android VPN active. Compare the full Device ID displayed in the app with the pending ID before enrolling it:
@@ -35,7 +37,7 @@ arlab doctor --repair --json
 
 Never enroll an unexplained pending ID. For migration to another Windows PC, securely copy only the old `%LOCALAPPDATA%\AndroidRemoteLab\state\devices.json`, run `arlab setup --import-state <folder-containing-devices-json>` on the new PC, then change the Companion endpoint to the new DNS name and verify the same Device ID reconnects.
 
-Doctor returns `READY` only when the current Companion reports both an unlocked keyguard and an active Accessibility service. `PHONE_LOCKED`, `ACCESSIBILITY_UNAVAILABLE`, and `CONNECTED_UNVERIFIED` are non-ready states; the last state indicates an older Companion that should be upgraded.
+Doctor returns `READY` only when Companion `versionCode >= 7` reports both an unlocked keyguard and an active Accessibility service. `PHONE_LOCKED`, `ACCESSIBILITY_UNAVAILABLE`, `COMPANION_UPDATE_REQUIRED`, and `CONNECTED_UNVERIFIED` are non-ready states; the last two require a Companion upgrade.
 
 After setup, close the Companion activity. Its connection service stays in the background, starts again after package replacement and boot, and reconnects after the first secure unlock. Android requires an ongoing foreground-service indicator; the Companion channel is low-importance, silent, non-vibrating, and badge-free.
 
@@ -49,18 +51,22 @@ arlab device screenshot C:\evidence\example.png --json
 arlab session stop
 ```
 
-The installed skill contains the complete workflow and a deterministic smoke-test script. The smoke test verifies the target package immediately before and after its screenshot and rejects unreadable, tiny, blank, or visually uniform frames, so a concurrent screen change or empty capture cannot be reported as successful.
+The installed skill contains the complete workflow and a deterministic smoke-test script. It verifies the target package immediately before and after capture and applies a conservative central-viewport pixel check for unreadable, tiny, obviously blank, or visually uniform frames. This is a smoke gate, not a substitute for semantic or human visual review.
 
 To deploy a test build without relying on persistent wireless ADB:
 
 ```powershell
 arlab session start 15
-arlab device diagnostics --json
-arlab device install C:\builds\app-debug.apk --json
-arlab device install-status --json
+try {
+    arlab device diagnostics --json
+    arlab device install C:\builds\app-debug.apk --json
+    arlab device install-status --json
+} finally {
+    arlab session stop
+}
 ```
 
-Require Companion `versionCode >= 6` in diagnostics. The CLI hashes the APK, uploads resumable 512 KiB chunks through the authenticated Companion session, verifies every chunk and the complete SHA-256 again on the phone, and submits it to Android's `PackageInstaller`. The first run requests the per-app "install unknown apps" setting; verify the visible screen rather than assuming Android displayed it. `SUBMITTED` is not installation success: handle Android's confirmation UI, then require `install-status` to report `success` before testing the build.
+Require Companion `versionCode >= 7` in diagnostics. The CLI hashes the APK, uploads resumable 512 KiB chunks through the authenticated Companion session, verifies every chunk and the complete SHA-256 again on the phone, and submits it to Android's `PackageInstaller`. The first run requests the per-app "install unknown apps" setting; verify the visible screen rather than assuming Android displayed it. `SUBMITTED` is not installation success: handle Android's confirmation UI, then require `install-status` to report `success` before testing the build.
 
 ## Security model
 

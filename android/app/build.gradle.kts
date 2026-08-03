@@ -22,8 +22,8 @@ android {
         applicationId = "com.codex.remotecompanion"
         minSdk = 30
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.1.0"
+        versionCode = 7
+        versionName = "1.1.1"
         buildConfigField("String", "DEFAULT_RELAY_HOST", "\"${defaultRelayHost.replace("\"", "\\\"")}\"")
     }
 

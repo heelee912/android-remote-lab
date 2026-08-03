@@ -37,7 +37,7 @@ Uninstalling the Companion removes its Android Keystore identity and requires a 
 
 Remote UI testing works for apps already installed on the phone. Installing a new APK requires one of these paths:
 
-- The authenticated Companion transport: require `arlab device diagnostics --json` to report Companion `versionCode >= 6`, run `arlab device install <apk> --json`, handle the Android permission/confirmation surface, then poll `arlab device install-status --json` until it reports `success` or `failed`.
+- The authenticated Companion transport: require `arlab device diagnostics --json` to report Companion `versionCode >= 7`, run `arlab device install <apk> --json`, handle the Android permission/confirmation surface, then poll `arlab device install-status --json` until it reports `success` or `failed`.
 - An already-authorized ADB transport: verify the exact device, then use `adb install -r <apk>`.
 - Fully managed device-owner provisioning, which materially changes device ownership and is outside this skill.
 

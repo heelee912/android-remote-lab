@@ -242,7 +242,9 @@ public final class RendezvousService extends Service {
                             .put("type", "pong")
                             .put("sentAt", frame.optLong("sentAt"))
                             .put("keyguardLocked", keyguard != null && keyguard.isKeyguardLocked())
-                            .put("accessibilityReady", ControlAccessibilityService.getInstance() != null));
+                            .put("accessibilityReady", ControlAccessibilityService.getInstance() != null)
+                            .put("versionCode", BuildConfig.VERSION_CODE)
+                            .put("versionName", BuildConfig.VERSION_NAME));
                     continue;
                 }
                 if (!"command".equals(type)) {

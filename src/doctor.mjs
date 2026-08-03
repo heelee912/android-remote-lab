@@ -91,6 +91,19 @@ function processState(config) {
   catch { return { launchers: 0, relays: 0, consoleHosts: null }; }
 }
 
+export function classifyState({ infrastructure, active, minimumCompanionVersionCode = 7 }) {
+  if (!infrastructure) return 'INFRASTRUCTURE_UNHEALTHY';
+  if (!active) return 'WAITING_FOR_PHONE';
+  if (active.keyguardLocked === true) return 'PHONE_LOCKED';
+  if (active.accessibilityReady === false) return 'ACCESSIBILITY_UNAVAILABLE';
+  const deviceVerified = active.keyguardLocked === false && active.accessibilityReady === true;
+  const companionVersionCode = Number(active.versionCode);
+  if (deviceVerified && (!Number.isSafeInteger(companionVersionCode)
+      || companionVersionCode < minimumCompanionVersionCode)) return 'COMPANION_UPDATE_REQUIRED';
+  if (!deviceVerified) return 'CONNECTED_UNVERIFIED';
+  return 'READY';
+}
+
 export async function doctor({ repair = false } = {}) {
   let config;
   try { config = loadConfig(); }
@@ -113,17 +126,8 @@ export async function doctor({ repair = false } = {}) {
     && processes.launchers === 1
     && processes.relays === 1
     && processes.consoleHosts === 0;
-  const connected = Boolean(local.active);
-  const keyguardLocked = local.active?.keyguardLocked;
-  const accessibilityReady = local.active?.accessibilityReady;
-  const deviceVerified = keyguardLocked === false && accessibilityReady === true;
-  let state;
-  if (!infrastructure) state = 'INFRASTRUCTURE_UNHEALTHY';
-  else if (!connected) state = 'WAITING_FOR_PHONE';
-  else if (keyguardLocked === true) state = 'PHONE_LOCKED';
-  else if (accessibilityReady === false) state = 'ACCESSIBILITY_UNAVAILABLE';
-  else if (!deviceVerified) state = 'CONNECTED_UNVERIFIED';
-  else state = 'READY';
+  const minimumCompanionVersionCode = 7;
+  const state = classifyState({ infrastructure, active: local.active, minimumCompanionVersionCode });
   return {
     ok: state === 'READY',
     state,
@@ -139,6 +143,7 @@ export async function doctor({ repair = false } = {}) {
       unattendedApkInstall: false,
       secureWindowScreenshots: false,
       wirelessAdbRecovery: false,
+      minimumCompanionVersionCode,
     },
   };
 }

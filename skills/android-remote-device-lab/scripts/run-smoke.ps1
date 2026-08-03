@@ -61,10 +61,14 @@ function Test-ScreenshotFrame {
         $colors = [System.Collections.Generic.HashSet[int]]::new()
         $minimum = 255
         $maximum = 0
-        $stepX = [Math]::Max(1, [int]($bitmap.Width / 40))
-        $stepY = [Math]::Max(1, [int]($bitmap.Height / 40))
-        for ($y = 0; $y -lt $bitmap.Height; $y += $stepY) {
-            for ($x = 0; $x -lt $bitmap.Width; $x += $stepX) {
+        $left = [int]($bitmap.Width * 0.05)
+        $right = [int]($bitmap.Width * 0.95)
+        $top = [int]($bitmap.Height * 0.08)
+        $bottom = [int]($bitmap.Height * 0.92)
+        $stepX = [Math]::Max(1, [int](($right - $left) / 50))
+        $stepY = [Math]::Max(1, [int](($bottom - $top) / 50))
+        for ($y = $top; $y -lt $bottom; $y += $stepY) {
+            for ($x = $left; $x -lt $right; $x += $stepX) {
                 $pixel = $bitmap.GetPixel($x, $y)
                 [void]$colors.Add($pixel.ToArgb())
                 $luminance = [int](0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B)
@@ -80,6 +84,7 @@ function Test-ScreenshotFrame {
             height = $bitmap.Height
             sampledColors = $colors.Count
             luminanceRange = $maximum - $minimum
+            sampleRegion = [pscustomobject]@{ left = $left; top = $top; right = $right; bottom = $bottom }
         }
     } finally {
         $bitmap.Dispose()
