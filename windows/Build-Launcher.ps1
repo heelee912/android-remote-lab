@@ -8,6 +8,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Get-Sha256 {
+    param([Parameter(Mandatory)] [string] $Path)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        return ([BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
 if (-not $SourcePath) { $SourcePath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.cs' }
 if (-not $OutputPath) { $OutputPath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.exe' }
 if (-not $ManifestPath) { $ManifestPath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.manifest.json' }
@@ -33,8 +45,8 @@ if ($subsystem -ne 2) { throw "Launcher PE subsystem is $subsystem; expected Win
 
 $value = [ordered]@{
     schemaVersion = 1
-    sourceSha256 = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
-    executableSha256 = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+    sourceSha256 = Get-Sha256 $source
+    executableSha256 = Get-Sha256 $output
     compilerFileVersion = (Get-Item -LiteralPath $csc).VersionInfo.FileVersion
     peSubsystem = 'windows-gui'
 }
