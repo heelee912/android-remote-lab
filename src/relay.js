@@ -15,7 +15,7 @@ const ingressPort = config.ingressPort;
 const apiPort = config.apiPort;
 const maxFrameBytes = 16 * 1024 * 1024;
 const maxAuthenticationFrameBytes = 8 * 1024;
-const maxApiBodyBytes = 64 * 1024;
+const maxApiBodyBytes = 1024 * 1024;
 const maxPendingEnrollments = 16;
 const pendingEnrollmentTtlMs = 60 * 60 * 1000;
 
@@ -33,6 +33,7 @@ let pendingEnrollment = readJson(pendingPath, {});
 let active = null;
 let sequence = 0;
 let controlLease = null;
+let controlOperation = Promise.resolve();
 const pendingCommands = new Map();
 
 prunePendingEnrollments();
@@ -81,6 +82,12 @@ function safeEqual(left, right) {
 function normalizedOwner(value) {
   const owner = String(value || '').replace(/[^A-Za-z0-9_.:-]/g, '_').slice(0, 128);
   return owner.length >= 3 ? owner : null;
+}
+
+function serializeControl(operation) {
+  const current = controlOperation.then(operation, operation);
+  controlOperation = current.catch(() => {});
+  return current;
 }
 
 function encodeFrame(value) {
@@ -407,26 +414,30 @@ const api = http.createServer(async (request, response) => {
     }
     if (request.method === 'POST' && request.url === '/control/start') {
       const body = await readBody(request);
-      const result = await startControlLease(body.durationMillis, body.owner, body.force === true);
-      return sendJson(response, result.ok ? 200 : 409, result);
+      return await serializeControl(async () => {
+        const result = await startControlLease(body.durationMillis, body.owner, body.force === true);
+        return sendJson(response, result.ok ? 200 : 409, result);
+      });
     }
     if (request.method === 'POST' && request.url === '/control/stop') {
       const body = await readBody(request);
-      const owner = normalizedOwner(body.owner);
-      if (controlLease && controlLease.owner !== owner && body.force !== true) {
-        return sendJson(response, 409, {
-          ok: false,
-          error: 'control-owned-by-another-session',
-          owner: controlLease.owner,
-          expiresAt: new Date(controlLease.expiresAt).toISOString(),
-        });
-      }
-      stopControlLease(false, `local-request owner=${owner || 'force'}`);
-      let result = { ok: true, result: { released: false } };
-      if (active && !active.socket.destroyed) {
-        result = await invokeCommand('release_lease', {}, 10_000);
-      }
-      return sendJson(response, result.ok ? 200 : 409, result);
+      return await serializeControl(async () => {
+        const owner = normalizedOwner(body.owner);
+        if (controlLease && controlLease.owner !== owner && body.force !== true) {
+          return sendJson(response, 409, {
+            ok: false,
+            error: 'control-owned-by-another-session',
+            owner: controlLease.owner,
+            expiresAt: new Date(controlLease.expiresAt).toISOString(),
+          });
+        }
+        stopControlLease(false, `local-request owner=${owner || 'force'}`);
+        let result = { ok: true, result: { released: false } };
+        if (active && !active.socket.destroyed) {
+          result = await invokeCommand('release_lease', {}, 10_000);
+        }
+        return sendJson(response, result.ok ? 200 : 409, result);
+      });
     }
     return sendJson(response, 404, { ok: false, error: 'not-found' });
   } catch (error) {

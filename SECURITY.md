@@ -17,3 +17,5 @@ Include the affected version, threat scenario, prerequisites, impact, and a mini
 - Tailscale Funnel provides TLS ingress, not device authorization. The relay still requires the enrolled Android signing identity.
 - The Accessibility service can observe visible UI and perform input. Disable it and remove the app when remote testing is no longer required.
 - APK submission is not silent installation. Android remains the authority for package permission, user confirmation, signature validation, and installer status.
+- The owner label is a coordination boundary between cooperative processes under one Windows account, not isolation from a malicious process that already controls that account and its local API token.
+- The Windows launcher is rebuilt from source for releases, checked against its source/executable manifest, and covered by GitHub build provenance. It is not Authenticode-signed by a public certificate authority.

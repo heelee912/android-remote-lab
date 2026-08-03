@@ -41,6 +41,17 @@ Capture a new snapshot after every screen transition. Prefer semantic node refer
 
 The Companion activity does not need to remain visible. Its background connection service is the transport; do not open the Companion itself unless changing endpoint settings or collecting its setup status.
 
+## Target App Logs
+
+The Companion cannot read another app's protected `logcat`. When an already-authorized ADB transport exists, collect a bounded snapshot without changing debugging state:
+
+```powershell
+& "$env:USERPROFILE\.codex\skills\android-remote-device-lab\scripts\collect-logcat.ps1" `
+  -PackageName 'com.example.app' -OutputPath '<absolute-log-path>'
+```
+
+If no authorized ADB device exists, report target-app logs as unavailable through this transport. Do not enable Wireless debugging merely to satisfy log collection.
+
 ## Deployment Boundary
 
 Read [references/setup-and-deployment.md](references/setup-and-deployment.md) before installing or updating an APK. Do not claim unattended APK installation, secure-keyguard bypass, pre-unlock UI control, secure-window screenshots, or automatic wireless-ADB recovery.

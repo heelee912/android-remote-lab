@@ -30,4 +30,6 @@
 
 `arlab device` supports `devices`, `capabilities`, `connection`, `diagnostics`, `open`, `snapshot`, `press`, `click`, `fill`, `swipe`, `home`, `back`, `app-switcher`, `screenshot`, `install`, `install-status`, and `close`.
 
-Screenshots can fail on Android secure windows. A successful screenshot proves only the captured frame, not animation stability or a complete workflow.
+The smoke script rejects unreadable, tiny, blank, and visually uniform screenshots. A successful screenshot still proves only the captured frame, not semantic UI correctness, animation stability, or a complete workflow. Screenshots can fail on Android secure windows.
+
+Android does not let an ordinary Companion read another app's protected `logcat`. Use the bundled log script only when ADB is already authorized; otherwise preserve the UI evidence and report target-app logs as unavailable rather than weakening debugging settings.

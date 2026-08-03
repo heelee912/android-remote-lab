@@ -50,6 +50,42 @@ function Assert-Foreground {
     }
 }
 
+function Test-ScreenshotFrame {
+    param([string] $Path)
+    Add-Type -AssemblyName System.Drawing
+    $bitmap = [System.Drawing.Bitmap]::FromFile($Path)
+    try {
+        if ($bitmap.Width -lt 100 -or $bitmap.Height -lt 100) {
+            throw "Screenshot dimensions are unexpectedly small: $($bitmap.Width)x$($bitmap.Height)"
+        }
+        $colors = [System.Collections.Generic.HashSet[int]]::new()
+        $minimum = 255
+        $maximum = 0
+        $stepX = [Math]::Max(1, [int]($bitmap.Width / 40))
+        $stepY = [Math]::Max(1, [int]($bitmap.Height / 40))
+        for ($y = 0; $y -lt $bitmap.Height; $y += $stepY) {
+            for ($x = 0; $x -lt $bitmap.Width; $x += $stepX) {
+                $pixel = $bitmap.GetPixel($x, $y)
+                [void]$colors.Add($pixel.ToArgb())
+                $luminance = [int](0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B)
+                $minimum = [Math]::Min($minimum, $luminance)
+                $maximum = [Math]::Max($maximum, $luminance)
+            }
+        }
+        if ($colors.Count -lt 8 -or ($maximum - $minimum) -lt 10) {
+            throw "Screenshot appears blank or visually uniform"
+        }
+        return [pscustomobject]@{
+            width = $bitmap.Width
+            height = $bitmap.Height
+            sampledColors = $colors.Count
+            luminanceRange = $maximum - $minimum
+        }
+    } finally {
+        $bitmap.Dispose()
+    }
+}
+
 $doctor = arlab doctor --repair --json | ConvertFrom-Json
 $allowedStates = @('READY', 'CONNECTED_UNVERIFIED')
 if ($doctor.state -notin $allowedStates) {
@@ -80,6 +116,7 @@ try {
 
     $after = Save-Snapshot ($session + '-after') $snapshotAfter
     Assert-Foreground $after 'Post-capture'
+    $frame = Test-ScreenshotFrame $screenshot
     [pscustomobject]@{
         ok = $true
         doctorState = $doctor.state
@@ -88,6 +125,7 @@ try {
         snapshotBefore = $snapshotBefore
         snapshotAfter = $snapshotAfter
         screenshot = $screenshot
+        frame = $frame
     } | ConvertTo-Json -Depth 6
 } finally {
     arlab session stop 2>$null | Out-Null

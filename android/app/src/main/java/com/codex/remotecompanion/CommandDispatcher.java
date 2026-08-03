@@ -1,7 +1,9 @@
 package com.codex.remotecompanion;
 
+import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.os.UserManager;
 
 import org.json.JSONObject;
 
@@ -19,11 +21,6 @@ final class CommandDispatcher {
             displayLease.release();
             return new JSONObject().put("released", true);
         }
-
-        long lease = displayLease.renew(args.optLong("leaseMillis", 120_000L));
-        if ("lease".equals(command)) {
-            return new JSONObject().put("leaseMillis", lease);
-        }
         if ("ping".equals(command)) {
             return new JSONObject().put("pong", true).put("leaseRemainingMillis", displayLease.remainingMillis());
         }
@@ -32,10 +29,13 @@ final class CommandDispatcher {
                     .put("leaseRemainingMillis", displayLease.remainingMillis());
         }
 
-        ControlAccessibilityService accessibility = ControlAccessibilityService.getInstance();
-        if (accessibility == null) {
-            throw new IllegalStateException("Accessibility service is not enabled or not bound");
+        assertControlReady();
+        long lease = displayLease.renew(args.optLong("leaseMillis", 120_000L));
+        if ("lease".equals(command)) {
+            return new JSONObject().put("leaseMillis", lease);
         }
+
+        ControlAccessibilityService accessibility = ControlAccessibilityService.getInstance();
 
         switch (command) {
             case "status":
@@ -43,27 +43,40 @@ final class CommandDispatcher {
             case "snapshot":
                 return accessibility.snapshot();
             case "global":
-                return new JSONObject().put("performed", accessibility.performGlobal(args.getString("action")));
+                return performed(
+                        accessibility.performGlobal(args.getString("action")),
+                        "Global action");
             case "tap":
-                return new JSONObject().put("performed", accessibility.tap(
-                        (float) args.getDouble("x"),
-                        (float) args.getDouble("y"),
-                        2000L));
+                return performed(
+                        accessibility.tap(
+                                (float) args.getDouble("x"),
+                                (float) args.getDouble("y"),
+                                2000L),
+                        "Tap");
             case "swipe":
-                return new JSONObject().put("performed", accessibility.swipe(
-                        (float) args.getDouble("startX"),
-                        (float) args.getDouble("startY"),
-                        (float) args.getDouble("endX"),
-                        (float) args.getDouble("endY"),
-                        args.optLong("durationMillis", 350L)));
+                return performed(
+                        accessibility.swipe(
+                                (float) args.getDouble("startX"),
+                                (float) args.getDouble("startY"),
+                                (float) args.getDouble("endX"),
+                                (float) args.getDouble("endY"),
+                                args.optLong("durationMillis", 350L)),
+                        "Swipe");
             case "click":
-                return new JSONObject().put("performed", accessibility.click(args.getJSONObject("selector")));
+                return performed(
+                        accessibility.click(args.getJSONObject("selector")),
+                        "Click");
             case "set_text":
-                return new JSONObject().put("performed", accessibility.setText(
-                        args.getJSONObject("selector"),
-                        args.getString("text")));
-            case "launch":
-                return new JSONObject().put("launched", launch(args.getString("packageName")));
+                return performed(
+                        accessibility.setText(
+                                args.getJSONObject("selector"),
+                                args.getString("text")),
+                        "Text input");
+            case "launch": {
+                boolean launched = launch(args.getString("packageName"));
+                if (!launched) throw new IllegalStateException("Package launch was rejected");
+                return new JSONObject().put("launched", true);
+            }
             case "screenshot": {
                 JSONObject before = accessibility.status();
                 String base64 = accessibility.screenshotPngBase64();
@@ -94,6 +107,28 @@ final class CommandDispatcher {
             default:
                 throw new IllegalArgumentException("Unsupported command: " + command);
         }
+    }
+
+    private void assertControlReady() {
+        UserManager users = (UserManager) context.getSystemService(Context.USER_SERVICE);
+        if (users == null || !users.isUserUnlocked()) {
+            throw new SecurityException("Android user storage is locked");
+        }
+        KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        if (keyguard != null && keyguard.isKeyguardLocked()) {
+            throw new SecurityException("Secure keyguard is locked");
+        }
+        if (!RendezvousService.hasValidatedVpn(context)) {
+            throw new SecurityException("Validated VPN is unavailable");
+        }
+        if (ControlAccessibilityService.getInstance() == null) {
+            throw new IllegalStateException("Accessibility service is not enabled or not bound");
+        }
+    }
+
+    private JSONObject performed(boolean value, String operation) throws Exception {
+        if (!value) throw new IllegalStateException(operation + " was not performed");
+        return new JSONObject().put("performed", true);
     }
 
     private boolean launch(String packageName) {

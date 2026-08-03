@@ -89,6 +89,17 @@ public final class RendezvousService extends Service {
                 .put("auditTail", readAuditTail(context, 80));
     }
 
+    static boolean hasValidatedVpn(Context context) {
+        ConnectivityManager connectivity = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
+        Network active = connectivity.getActiveNetwork();
+        if (active == null) return false;
+        NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(active);
+        return capabilities != null
+                && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -133,6 +144,12 @@ public final class RendezvousService extends Service {
                 sessionAuthenticated = false;
                 if (!RelayPreferences.configured(this)) {
                     setStatus("Configuration required");
+                    sleep(5_000L);
+                    continue;
+                }
+                UserManager users = (UserManager) getSystemService(USER_SERVICE);
+                if (users == null || !users.isUserUnlocked()) {
+                    setStatus("Waiting for first secure unlock");
                     sleep(5_000L);
                     continue;
                 }
@@ -213,6 +230,10 @@ public final class RendezvousService extends Service {
             long lastSequence = 0L;
             CommandDispatcher dispatcher = new CommandDispatcher(this, displayLease);
             while (running.get()) {
+                Network currentVpn = validatedVpnNetwork();
+                if (currentVpn == null || !currentVpn.equals(vpnNetwork)) {
+                    throw new SecurityException("Validated VPN changed or disconnected");
+                }
                 JSONObject frame = Protocol.read(input);
                 String type = frame.optString("type");
                 if ("ping".equals(type)) {

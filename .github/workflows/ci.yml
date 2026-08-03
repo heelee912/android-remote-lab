@@ -18,14 +18,18 @@ jobs:
           cache: npm
       - run: npm run check
       - run: npm test
+      - run: npm run validate-launcher
       - run: npm run validate-powershell
       - run: npm run validate-skill
       - name: Rebuild windowless launcher
         shell: pwsh
         run: |
-          $csc=(Get-ChildItem "$env:WINDIR\Microsoft.NET\Framework64" -Recurse -Filter csc.exe | Sort-Object FullName -Descending | Select-Object -First 1).FullName
-          & $csc /nologo /target:winexe /optimize+ /out:windows/CompanionRelayLauncher.ci.exe windows/CompanionRelayLauncher.cs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\windows\Build-Launcher.ps1 `
+            -OutputPath "$env:RUNNER_TEMP\CompanionRelayLauncher.exe" `
+            -ManifestPath "$env:RUNNER_TEMP\CompanionRelayLauncher.manifest.json"
+          .\windows\Verify-Launcher.ps1 `
+            -ExecutablePath "$env:RUNNER_TEMP\CompanionRelayLauncher.exe" `
+            -ManifestPath "$env:RUNNER_TEMP\CompanionRelayLauncher.manifest.json"
 
   android:
     runs-on: ubuntu-latest

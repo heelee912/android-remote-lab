@@ -25,13 +25,15 @@ arlab skill install
 
 `--system` installs a startup task and requires an elevated terminal. Without elevation, use `arlab setup`; the relay then starts at user logon. Setup prints the DNS host and port to enter in the Android app.
 
-Install `remote-companion.apk` from the latest GitHub release, enter the endpoint, enable its Accessibility service, and keep the intended Android VPN active. Then enroll the pending device:
+Install `remote-companion.apk` from the latest GitHub release, enter the endpoint, enable its Accessibility service, and keep the intended Android VPN active. Compare the full Device ID displayed in the app with the pending ID before enrolling it:
 
 ```powershell
 arlab status
 arlab enroll <device-id>
 arlab doctor --repair --json
 ```
+
+Never enroll an unexplained pending ID. For migration to another Windows PC, securely copy only the old `%LOCALAPPDATA%\AndroidRemoteLab\state\devices.json`, run `arlab setup --import-state <folder-containing-devices-json>` on the new PC, then change the Companion endpoint to the new DNS name and verify the same Device ID reconnects.
 
 Doctor returns `READY` only when the current Companion reports both an unlocked keyguard and an active Accessibility service. `PHONE_LOCKED`, `ACCESSIBILITY_UNAVAILABLE`, and `CONNECTED_UNVERIFIED` are non-ready states; the last state indicates an older Companion that should be upgraded.
 
@@ -47,7 +49,7 @@ arlab device screenshot C:\evidence\example.png --json
 arlab session stop
 ```
 
-The installed skill contains the complete workflow and a deterministic smoke-test script. The smoke test verifies the target package immediately before and after its screenshot so a concurrent screen change cannot be reported as a successful capture.
+The installed skill contains the complete workflow and a deterministic smoke-test script. The smoke test verifies the target package immediately before and after its screenshot and rejects unreadable, tiny, blank, or visually uniform frames, so a concurrent screen change or empty capture cannot be reported as successful.
 
 To deploy a test build without relying on persistent wireless ADB:
 
@@ -69,6 +71,9 @@ Require Companion `versionCode >= 6` in diagnostics. The CLI hashes the APK, upl
 - A per-thread owner lease serializes physical-device control.
 - Password-node text is redacted; Android secure keyguard and secure screenshot surfaces are not bypassed.
 - The Android app refuses to connect without an active VPN carrying `INTERNET` and `VALIDATED` capabilities.
+- Release workflows rebuild the GUI-subsystem launcher from source, verify its manifest, publish SHA-256 files, and issue GitHub build provenance.
+
+The owner lease prevents accidental concurrent control by cooperative Codex tasks. It is not a security boundary against another process already running as the same Windows user with access to the local API token.
 
 ## Exact limits
 
@@ -76,6 +81,7 @@ Require Companion `versionCode >= 6` in diagnostics. The CLI hashes the APK, upl
 - Wireless ADB is not the operational transport and is not automatically restored after reboot.
 - APKs up to 512 MiB can be transferred without ADB, but ordinary Android apps cannot guarantee unattended installation. Android may require per-installer permission, package-install confirmation, Play Protect review, or reject a conflicting signature. See the official [PackageInstaller documentation](https://developer.android.com/reference/android/content/pm/PackageInstaller.html).
 - Screenshots of secure windows can fail by Android design. See the official [AccessibilityService documentation](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService.html).
+- The Companion cannot read another app's protected `logcat`. The skill can collect logs only through an already-authorized ADB transport and never enables Wireless debugging itself.
 - Availability still depends on PC power/connectivity, Tailscale Funnel, phone power/connectivity, the configured VPN, and first unlock after reboot.
 
 ## Development

@@ -21,8 +21,12 @@
   "files": [
     "bin/",
     "src/",
+    "windows/Build-Launcher.ps1",
+    "windows/CompanionRelayLauncher.cs",
     "windows/CompanionRelayLauncher.exe",
+    "windows/CompanionRelayLauncher.manifest.json",
     "windows/Install-Runtime.ps1",
+    "windows/Verify-Launcher.ps1",
     "skills/",
     "README.md",
     "SECURITY.md",
@@ -31,9 +35,10 @@
   "scripts": {
     "check": "node --check src/relay.js && node --check src/client.js && node --check src/adapter.mjs && node --check bin/arlab.mjs",
     "test": "node test/relay.test.js",
+    "validate-launcher": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File windows/Verify-Launcher.ps1",
     "validate-powershell": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/validate-powershell.ps1",
     "validate-skill": "node test/validate-skill.mjs",
-    "prepack": "npm run check && npm test && npm run validate-powershell && npm run validate-skill"
+    "prepack": "npm run check && npm test && npm run validate-launcher && npm run validate-powershell && npm run validate-skill"
   },
   "keywords": [
     "android",

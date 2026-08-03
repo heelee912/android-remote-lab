@@ -17,11 +17,21 @@ Run `arlab setup` without `--system` when elevation is unavailable. User-logon m
 2. Enter the relay DNS host and TLS port printed by `arlab setup`.
 3. Enable the Companion accessibility service and notification permission.
 4. Keep the intended full Android VPN active.
-5. Run `arlab status`, then `arlab enroll <pending-device-id>`.
+5. Run `arlab status`, compare the full pending ID to the Device ID displayed by the Companion, then run `arlab enroll <pending-device-id>` only for an exact match.
 
 The device automatically reconnects after its first secure unlock following reboot. It cannot provide pre-unlock UI control.
 
 The Companion activity may be closed after enrollment. Android requires its long-running connection to use a foreground service, so an ongoing low-importance service indicator can remain visible; the app configures that channel without sound, vibration, or a launcher badge.
+
+## Move An Existing Enrollment
+
+1. On the old PC, securely copy `%LOCALAPPDATA%\AndroidRemoteLab\state\devices.json`. It contains pinned public identities, not the local API token.
+2. On the new PC, place that file alone in a temporary protected folder and run `arlab setup --system --import-state <folder>`.
+3. In the Companion activity, replace the endpoint with the new setup output and save.
+4. Run `arlab doctor --repair --json` and verify the connected Device ID exactly matches the migrated enrollment.
+5. Remove the temporary copy and retire the old relay separately.
+
+Uninstalling the Companion removes its Android Keystore identity and requires a new explicit enrollment. An in-place update signed by the same certificate preserves it.
 
 ## App Build Deployment
 

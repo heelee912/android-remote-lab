@@ -192,12 +192,28 @@ async function main() {
     assert.equal(blockedOwner.status, 409);
     assert.equal(blockedOwner.body.error, 'control-owned-by-another-session');
 
+    const encodedChunk = Buffer.alloc(512 * 1024, 0x5a).toString('base64');
+    const largeCommandPromise = request(apiPort, token, 'POST', '/command', {
+      command: 'install_chunk',
+      args: { uploadId: 'a'.repeat(64), offset: 0, base64: encodedChunk, chunkSha256: 'b'.repeat(64) },
+      owner,
+    });
+    const largeCommand = await second.next();
+    assert.equal(largeCommand.command, 'install_chunk');
+    assert.equal(largeCommand.args.base64.length, encodedChunk.length);
+    second.socket.write(frame({
+      type: 'response', requestId: largeCommand.requestId, seq: largeCommand.seq,
+      ok: true, result: { receivedBytes: 512 * 1024 },
+    }));
+    const largeResponse = await largeCommandPromise;
+    assert.equal(largeResponse.status, 200);
+
     const commandPromise = request(apiPort, token, 'POST', '/command', {
       command: 'status', args: {}, owner,
     });
     const command = await second.next();
     assert.equal(command.type, 'command');
-    assert.equal(command.seq, 2);
+    assert.equal(command.seq, 3);
     second.socket.write(frame({
       type: 'response', requestId: command.requestId, seq: command.seq,
       ok: true, result: { connected: true },
@@ -206,6 +222,18 @@ async function main() {
     assert.equal(response.status, 200);
     assert.equal(response.body.result.connected, true);
 
+    const failedActionPromise = request(apiPort, token, 'POST', '/command', {
+      command: 'click', args: { selector: { text: 'missing' } }, owner,
+    });
+    const failedAction = await second.next();
+    second.socket.write(frame({
+      type: 'response', requestId: failedAction.requestId, seq: failedAction.seq,
+      ok: false, error: { code: 'IllegalStateException', message: 'Click was not performed' },
+    }));
+    const failedActionResponse = await failedActionPromise;
+    assert.equal(failedActionResponse.status, 409);
+    assert.equal(failedActionResponse.body.error.message, 'Click was not performed');
+
     let sequenceRequestSettled = false;
     const sequencePromise = request(apiPort, token, 'POST', '/command', {
       command: 'status', args: {}, owner,
@@ -213,9 +241,9 @@ async function main() {
       .then((value) => {
         sequenceRequestSettled = true;
         return value;
-      });
+    });
     const sequenceCommand = await second.next();
-    assert.equal(sequenceCommand.seq, 3);
+    assert.equal(sequenceCommand.seq, 5);
     second.socket.write(frame({
       type: 'response', requestId: sequenceCommand.requestId, seq: 1,
       ok: true, result: { acceptedStaleSequence: true },
@@ -246,6 +274,33 @@ async function main() {
     }));
     const stoppedLease = await stopLeasePromise;
     assert.equal(stoppedLease.status, 200);
+
+    const raceStartA = request(apiPort, token, 'POST', '/control/start', {
+      durationMillis: 120_000, owner: 'race-owner-a',
+    });
+    const raceStartB = request(apiPort, token, 'POST', '/control/start', {
+      durationMillis: 120_000, owner: 'race-owner-b',
+    });
+    const raceLeaseCommand = await second.next();
+    assert.equal(raceLeaseCommand.command, 'lease');
+    second.socket.write(frame({
+      type: 'response', requestId: raceLeaseCommand.requestId, seq: raceLeaseCommand.seq,
+      ok: true, result: { leaseMillis: 90_000 },
+    }));
+    const raceResults = await Promise.race([
+      Promise.all([raceStartA, raceStartB]),
+      delay(2000).then(() => { throw new Error('concurrent control starts did not settle'); }),
+    ]);
+    assert.deepEqual(raceResults.map((item) => item.status).sort(), [200, 409]);
+    const raceWinner = raceResults.find((item) => item.status === 200).body.result.owner;
+    const raceStopPromise = request(apiPort, token, 'POST', '/control/stop', { owner: raceWinner });
+    const raceReleaseCommand = await second.next();
+    assert.equal(raceReleaseCommand.command, 'release_lease');
+    second.socket.write(frame({
+      type: 'response', requestId: raceReleaseCommand.requestId, seq: raceReleaseCommand.seq,
+      ok: true, result: { released: true },
+    }));
+    assert.equal((await raceStopPromise).status, 200);
     second.socket.destroy();
 
     const corruptState = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-relay-corrupt-test-'));
