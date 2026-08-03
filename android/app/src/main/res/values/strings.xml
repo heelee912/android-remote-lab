@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Remote Companion</string>
+    <string name="accessibility_description">Allows authenticated remote sessions to inspect visible UI and perform explicitly requested gestures.</string>
+    <string name="notification_channel">Remote connection</string>
+    <string name="notification_title">Remote Companion ready</string>
+    <string name="notification_text">Waiting for an authenticated relay session through the active VPN</string>
+    <string name="description">Authenticated physical-device testing through a private PC relay. A validated Android VPN must be active before the app opens a connection.</string>
+    <string name="relay_host_hint">Relay DNS host</string>
+    <string name="relay_port_hint">TLS relay port</string>
+    <string name="save_and_connect">Save and connect</string>
+    <string name="open_accessibility">Open accessibility settings</string>
+    <string name="open_accessibility_description">Open accessibility settings for Remote Companion</string>
+    <string name="open_install_permission">Allow test app installs</string>
+    <string name="open_install_permission_description">Open Android permission settings for test APK installation</string>
+    <string name="configuration_error">Configuration error: %1$s</string>
+    <string name="setup_error">Setup error: %1$s</string>
+    <string name="status_format">Endpoint\n%1$s\n\nDevice ID\n%2$s\n\nAccessibility\n%3$s\n\nConnection\n%4$s</string>
+    <string name="enabled">Enabled</string>
+    <string name="not_enabled">Not enabled</string>
+</resources>

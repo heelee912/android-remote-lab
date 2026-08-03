@@ -1,0 +1,4 @@
+interface:
+  display_name: "Android Remote Device Lab"
+  short_description: "Control and test Android apps on a remote physical device"
+  default_prompt: "Use $android-remote-device-lab to verify this Android app on the remote physical device."

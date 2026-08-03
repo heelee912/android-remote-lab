@@ -1,0 +1,314 @@
+'use strict';
+
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const http = require('node:http');
+const path = require('node:path');
+const { loadConfig, ownerId } = require('./config.js');
+
+const config = loadConfig();
+const stateDir = process.env.ANDROID_REMOTE_LAB_STATE_DIR || config.stateDir;
+const apiPort = Number(process.env.ANDROID_REMOTE_LAB_API_PORT || config.apiPort);
+const token = fs.readFileSync(path.join(stateDir, 'local-api-token.txt'), 'utf8').trim();
+const sessionDir = path.join(stateDir, 'sessions');
+const automaticControlLeaseMillis = 10 * 60_000;
+const minimumControlLeaseRemainingMillis = 2 * 60_000;
+const owner = ownerId();
+
+function usage(error) {
+  if (error) process.stderr.write(`${error}\n`);
+  process.stderr.write([
+    'Usage:',
+    '  companion-cli.js status',
+    '  companion-cli.js enroll <deviceId>',
+    '  companion-cli.js snapshot [session]',
+    '  companion-cli.js press <back|home|recents|notifications|quick_settings>',
+    '  companion-cli.js tap <x> <y>',
+    '  companion-cli.js swipe <startX> <startY> <endX> <endY> [durationMs]',
+    '  companion-cli.js click <@eN|text=...|viewId=...|desc=...> [session]',
+    '  companion-cli.js set-text <@eN|text=...|viewId=...|desc=...> <value> [session]',
+    '  companion-cli.js open <packageName>',
+    '  companion-cli.js screenshot <absolutePngPath>',
+    '  companion-cli.js install <absoluteApkPath>',
+    '  companion-cli.js install-status [uploadId]',
+    '  companion-cli.js diagnostics',
+    '  companion-cli.js session-start [minutes]',
+    '  companion-cli.js session-stop',
+    '  companion-cli.js lease [milliseconds]',
+    '  companion-cli.js release',
+    '  companion-cli.js raw <command> [jsonArgs]',
+  ].join('\n') + '\n');
+  process.exit(error ? 2 : 0);
+}
+
+function api(method, route, body, requestTimeoutMs = 35_000) {
+  return new Promise((resolve, reject) => {
+    const encoded = body === undefined ? null : Buffer.from(JSON.stringify(body), 'utf8');
+    const request = http.request({
+      host: '127.0.0.1',
+      port: apiPort,
+      path: route,
+      method,
+      headers: {
+        'x-companion-token': token,
+        ...(encoded ? { 'content-type': 'application/json', 'content-length': encoded.length } : {}),
+      },
+      timeout: requestTimeoutMs,
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => {
+        let value;
+        try { value = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+        catch { return reject(new Error(`invalid API response (${response.statusCode})`)); }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          const rawError = value.error;
+          const message = typeof rawError === 'string'
+            ? rawError
+            : rawError?.message || rawError?.code || `API HTTP ${response.statusCode}`;
+          const detail = value.owner ? ` (owner=${value.owner}, expiresAt=${value.expiresAt || 'unknown'})` : '';
+          return reject(new Error(`${message}${detail}`));
+        }
+        resolve(value);
+      });
+    });
+    request.on('timeout', () => request.destroy(new Error('API timeout')));
+    request.on('error', reject);
+    if (encoded) request.write(encoded);
+    request.end();
+  });
+}
+
+async function ensureControlLease() {
+  const status = await api('GET', '/status');
+  if (!status.active) throw new Error('device-not-connected');
+  const expiresAt = Date.parse(status.controlLease?.expiresAt || '');
+  if (Number.isFinite(expiresAt) && expiresAt - Date.now() > minimumControlLeaseRemainingMillis) return;
+  await api('POST', '/control/start', { durationMillis: automaticControlLeaseMillis, owner });
+}
+
+async function command(name, args = {}, timeoutMs = 20_000, maintainDisplayLease = true) {
+  if (maintainDisplayLease) await ensureControlLease();
+  const apiTimeoutMs = Math.max(35_000, Math.min(timeoutMs + 5_000, 125_000));
+  return api('POST', '/command', { command: name, args, timeoutMs, owner }, apiTimeoutMs);
+}
+
+function hashFile(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const input = fs.createReadStream(file);
+    input.on('data', (chunk) => hash.update(chunk));
+    input.on('end', () => resolve(hash.digest('hex')));
+    input.on('error', reject);
+  });
+}
+
+async function installApk(inputPath) {
+  const file = path.resolve(inputPath || '');
+  const details = fs.statSync(file, { throwIfNoEntry: false });
+  if (!details?.isFile() || path.extname(file).toLowerCase() !== '.apk') {
+    usage('install requires an existing absolute or relative .apk path');
+  }
+  if (details.size <= 0 || details.size > 512 * 1024 * 1024) {
+    usage('APK size must be between 1 byte and 512 MiB');
+  }
+  const sha256 = await hashFile(file);
+  const begin = await command('install_begin', {
+    sizeBytes: details.size,
+    sha256,
+    fileName: path.basename(file),
+  });
+  if (begin.result?.permissionRequired) {
+    return {
+      ok: true,
+      state: 'INSTALL_PERMISSION_REQUIRED',
+      uploadId: sha256,
+      sizeBytes: details.size,
+      settingsIntentRequested: true,
+    };
+  }
+
+  const uploadId = begin.result?.uploadId;
+  let offset = Number(begin.result?.receivedBytes || 0);
+  if (uploadId !== sha256 || offset < 0 || offset > details.size) {
+    throw new Error('Companion returned invalid APK upload state');
+  }
+  const descriptor = fs.openSync(file, 'r');
+  const buffer = Buffer.allocUnsafe(512 * 1024);
+  try {
+    while (offset < details.size) {
+      const count = fs.readSync(
+        descriptor,
+        buffer,
+        0,
+        Math.min(buffer.length, details.size - offset),
+        offset);
+      if (count <= 0) throw new Error('Unexpected end of APK file');
+      const chunk = buffer.subarray(0, count);
+      const appended = await command('install_chunk', {
+        uploadId,
+        offset,
+        base64: chunk.toString('base64'),
+        chunkSha256: crypto.createHash('sha256').update(chunk).digest('hex'),
+      }, 30_000);
+      const received = Number(appended.result?.receivedBytes);
+      if (received !== offset + count) throw new Error('Companion APK upload offset diverged');
+      offset = received;
+    }
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  const committed = await command('install_commit', { uploadId }, 120_000);
+  return {
+    ok: true,
+    state: 'SUBMITTED',
+    uploadId,
+    sha256,
+    sizeBytes: details.size,
+    result: committed.result,
+  };
+}
+
+function finite(value, label) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) usage(`${label} must be numeric`);
+  return number;
+}
+
+function sessionPath(name) {
+  const safe = String(name || 'default').replace(/[^A-Za-z0-9_.-]/g, '_');
+  return path.join(sessionDir, `${safe}.json`);
+}
+
+function selectorFrom(value, session) {
+  if (/^@e\d+$/.test(value)) {
+    const stored = JSON.parse(fs.readFileSync(sessionPath(session), 'utf8'));
+    const node = stored.refs[value];
+    if (!node) usage(`unknown element reference ${value}`);
+    if (node.viewId) return { viewId: node.viewId };
+    if (node.contentDescription) return { contentDescription: node.contentDescription };
+    if (node.text) return { text: node.text };
+    usage(`${value} has no stable selector`);
+  }
+  const separator = value.indexOf('=');
+  if (separator < 1) usage('selector must be @eN, text=, viewId=, or desc=');
+  const kind = value.slice(0, separator);
+  const content = value.slice(separator + 1);
+  if (!content) usage('selector value cannot be empty');
+  if (kind === 'text' || kind === 'viewId') return { [kind]: content };
+  if (kind === 'desc') return { contentDescription: content };
+  usage(`unsupported selector kind ${kind}`);
+}
+
+async function snapshot(session) {
+  const response = await command('snapshot');
+  const nodes = response.result?.nodes || [];
+  const root = nodes.find((node) => node.id === 0) || nodes[0] || null;
+  const refs = {};
+  const lines = [];
+  let index = 0;
+  for (const node of nodes) {
+    const useful = node.clickable || node.editable || node.text || node.contentDescription;
+    if (!useful) continue;
+    const ref = `@e${++index}`;
+    refs[ref] = node;
+    const label = node.text || node.contentDescription || node.viewId || node.className;
+    lines.push(`${ref} ${node.className || ''} ${JSON.stringify(label || '')} [${node.left},${node.top}][${node.right},${node.bottom}]${node.clickable ? ' clickable' : ''}${node.editable ? ' editable' : ''}`);
+  }
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(sessionPath(session), JSON.stringify({
+    capturedAt: new Date().toISOString(),
+    rootPackageName: root?.packageName || null,
+    rootClassName: root?.className || null,
+    truncated: Boolean(response.result?.truncated),
+    refs,
+  }, null, 2));
+  process.stdout.write(`${lines.join('\n')}\n`);
+}
+
+async function main() {
+  const [action, ...args] = process.argv.slice(2);
+  if (!action || action === '--help' || action === '-h') usage();
+  let result;
+  switch (action) {
+    case 'status': result = await api('GET', '/status'); break;
+    case 'enroll':
+      if (!args[0]) usage('deviceId is required');
+      result = await api('POST', '/enroll', { deviceId: args[0] });
+      break;
+    case 'snapshot': await snapshot(args[0]); return;
+    case 'press':
+      if (!args[0]) usage('global action is required');
+      result = await command('global', { action: args[0] });
+      break;
+    case 'tap': result = await command('tap', { x: finite(args[0], 'x'), y: finite(args[1], 'y') }); break;
+    case 'swipe':
+      result = await command('swipe', {
+        startX: finite(args[0], 'startX'), startY: finite(args[1], 'startY'),
+        endX: finite(args[2], 'endX'), endY: finite(args[3], 'endY'),
+        durationMillis: args[4] === undefined ? 350 : finite(args[4], 'durationMs'),
+      });
+      break;
+    case 'click':
+      if (!args[0]) usage('selector is required');
+      result = await command('click', { selector: selectorFrom(args[0], args[1]) });
+      break;
+    case 'set-text':
+      if (!args[0] || args[1] === undefined) usage('selector and value are required');
+      result = await command('set_text', { selector: selectorFrom(args[0], args[2]), text: args[1] });
+      break;
+    case 'open':
+      if (!args[0]) usage('package name is required');
+      result = await command('launch', { packageName: args[0] });
+      break;
+    case 'screenshot': {
+      if (!path.isAbsolute(args[0] || '')) usage('an absolute output path is required');
+      const response = await command('screenshot', {}, 30_000);
+      fs.mkdirSync(path.dirname(args[0]), { recursive: true });
+      fs.writeFileSync(args[0], Buffer.from(response.result.base64, 'base64'));
+      result = {
+        ok: true,
+        path: args[0],
+        mimeType: response.result.mimeType,
+        activeWindowBefore: response.result.activeWindowBefore || null,
+        activeWindowAfter: response.result.activeWindowAfter || null,
+      };
+      break;
+    }
+    case 'install':
+      result = await installApk(args[0]);
+      break;
+    case 'install-status':
+      result = await command('install_status', { uploadId: args[0] || '' });
+      break;
+    case 'diagnostics': result = await command('diagnostics'); break;
+    case 'session-start': {
+      const minutesValue = args.find((value) => !value.startsWith('--'));
+      const minutes = minutesValue === undefined ? 10 : finite(minutesValue, 'minutes');
+      result = await api('POST', '/control/start', {
+        durationMillis: minutes * 60_000,
+        owner,
+        force: args.includes('--force'),
+      });
+      break;
+    }
+    case 'session-stop': result = await api('POST', '/control/stop', { owner, force: args.includes('--force') }); break;
+    case 'lease': result = await command('lease', { leaseMillis: args[0] === undefined ? 120_000 : finite(args[0], 'milliseconds') }, 20_000, false); break;
+    case 'release': result = await command('release_lease', {}, 20_000, false); break;
+    case 'raw':
+      if (!args[0]) usage('command is required');
+      result = await command(
+        args[0],
+        args[1] ? JSON.parse(args[1]) : {},
+        20_000,
+        args[0] !== 'lease' && args[0] !== 'release_lease');
+      break;
+    default: usage(`unknown action ${action}`);
+  }
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.message || error}\n`);
+  process.exitCode = 1;
+});

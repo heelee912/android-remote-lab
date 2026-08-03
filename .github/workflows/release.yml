@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Restore Android signing material
+        shell: pwsh
+        env:
+          SIGNING_P12: ${{ secrets.ANDROID_SIGNING_P12_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\release.p12", [Convert]::FromBase64String($env:SIGNING_P12))
+          @"
+          storeFile=$($env:RUNNER_TEMP -replace '\\','/')/release.p12
+          storePassword=$env:STORE_PASSWORD
+          keyAlias=$env:KEY_ALIAS
+          keyPassword=$env:KEY_PASSWORD
+          "@ | Set-Content "$env:RUNNER_TEMP\signing.properties" -Encoding ASCII
+      - name: Build release assets
+        shell: pwsh
+        run: |
+          npm run check
+          npm test
+          New-Item -ItemType Directory dist | Out-Null
+          Push-Location android
+          .\gradlew.bat clean lintRelease assembleRelease "-PsigningProperties=$env:RUNNER_TEMP\signing.properties"
+          Pop-Location
+          Copy-Item android\app\build\outputs\apk\release\app-release.apk dist\remote-companion.apk
+          $tgz = npm pack --pack-destination dist | Select-Object -Last 1
+          $assets = @(Get-ChildItem dist -File)
+          $assets | ForEach-Object {
+            $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Set-Content "$($_.FullName).sha256" -Encoding ASCII
+          }
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*

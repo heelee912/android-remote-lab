@@ -1,0 +1,47 @@
+{
+  "name": "android-remote-lab",
+  "version": "0.1.0",
+  "description": "Secure on-demand control and physical-device testing for Android through a Windows relay",
+  "license": "MIT",
+  "author": "heelee912",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heelee912/android-remote-lab.git"
+  },
+  "homepage": "https://github.com/heelee912/android-remote-lab#readme",
+  "bugs": "https://github.com/heelee912/android-remote-lab/issues",
+  "os": ["win32"],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "arlab": "bin/arlab.mjs",
+    "agent-device-companion": "src/adapter.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "windows/CompanionRelayLauncher.exe",
+    "windows/Install-Runtime.ps1",
+    "skills/",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check src/relay.js && node --check src/client.js && node --check src/adapter.mjs && node --check bin/arlab.mjs",
+    "test": "node test/relay.test.js",
+    "validate-powershell": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/validate-powershell.ps1",
+    "validate-skill": "node test/validate-skill.mjs",
+    "prepack": "npm run check && npm test && npm run validate-powershell && npm run validate-skill"
+  },
+  "keywords": [
+    "android",
+    "accessibility",
+    "physical-device",
+    "testing",
+    "codex",
+    "agent-device",
+    "tailscale"
+  ]
+}
