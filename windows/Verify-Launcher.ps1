@@ -20,13 +20,25 @@ function Get-Sha256 {
     }
 }
 
+function Get-CanonicalTextSha256 {
+    param([Parameter(Mandatory)] [string] $Path)
+    $text = [IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($algorithm.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $algorithm.Dispose()
+    }
+}
+
 if (-not $SourcePath) { $SourcePath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.cs' }
 if (-not $ExecutablePath) { $ExecutablePath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.exe' }
 if (-not $ManifestPath) { $ManifestPath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.manifest.json' }
 $source = [IO.Path]::GetFullPath($SourcePath)
 $executable = [IO.Path]::GetFullPath($ExecutablePath)
 $manifest = Get-Content -Raw -LiteralPath ([IO.Path]::GetFullPath($ManifestPath)) | ConvertFrom-Json
-$sourceHash = Get-Sha256 $source
+$sourceHash = Get-CanonicalTextSha256 $source
 $executableHash = Get-Sha256 $executable
 if ($sourceHash -ne $manifest.sourceSha256) { throw 'Launcher source hash does not match its manifest' }
 if ($executableHash -ne $manifest.executableSha256) { throw 'Launcher executable hash does not match its manifest' }

@@ -20,6 +20,18 @@ function Get-Sha256 {
     }
 }
 
+function Get-CanonicalTextSha256 {
+    param([Parameter(Mandatory)] [string] $Path)
+    $text = [IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($algorithm.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $algorithm.Dispose()
+    }
+}
+
 if (-not $SourcePath) { $SourcePath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.cs' }
 if (-not $OutputPath) { $OutputPath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.exe' }
 if (-not $ManifestPath) { $ManifestPath = Join-Path $PSScriptRoot 'CompanionRelayLauncher.manifest.json' }
@@ -45,7 +57,7 @@ if ($subsystem -ne 2) { throw "Launcher PE subsystem is $subsystem; expected Win
 
 $value = [ordered]@{
     schemaVersion = 1
-    sourceSha256 = Get-Sha256 $source
+    sourceSha256 = Get-CanonicalTextSha256 $source
     executableSha256 = Get-Sha256 $output
     compilerFileVersion = (Get-Item -LiteralPath $csc).VersionInfo.FileVersion
     peSubsystem = 'windows-gui'
