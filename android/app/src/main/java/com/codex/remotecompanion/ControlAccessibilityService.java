@@ -79,7 +79,8 @@ public final class ControlAccessibilityService extends AccessibilityService {
             int id = nextId++;
             JSONObject item = describeNode(node, id, entry.parentId, entry.depth);
             nodes.put(item);
-            for (int index = 0; index < node.getChildCount(); index++) {
+            int childCount = node.getChildCount();
+            for (int index = 0; index < childCount; index++) {
                 AccessibilityNodeInfo child = node.getChild(index);
                 if (child != null) {
                     queue.addLast(new NodeEntry(child, id, entry.depth + 1));
@@ -120,7 +121,7 @@ public final class ControlAccessibilityService extends AccessibilityService {
         return dispatch(path, Math.max(50L, Math.min(durationMillis, 2000L)), 4000L);
     }
 
-    boolean click(JSONObject selector) {
+    boolean click(JSONObject selector) throws InterruptedException {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (selector.has("guard") && !guardMatches(root, selector.optJSONObject("guard"))) throw new IllegalStateException("Atomic UI guard changed");
         AccessibilityNodeInfo node = findNode(root, selector);
@@ -134,7 +135,25 @@ public final class ControlAccessibilityService extends AccessibilityService {
             }
             current = current.getParent();
         }
-        return false;
+        // Some official app buttons reject ACTION_CLICK but accept Android
+        // gestures. Recheck the same live window and guard before one gesture;
+        // never ask the client to resend a financial action after uncertainty.
+        AccessibilityNodeInfo freshRoot = getRootInActiveWindow();
+        if (selector.has("guard") && !guardMatches(freshRoot, selector.optJSONObject("guard"))) {
+            throw new IllegalStateException("Atomic UI guard changed");
+        }
+        AccessibilityNodeInfo fresh = findNode(freshRoot, selector);
+        if (fresh == null || fresh.isPassword() || !fresh.isEnabled() || !fresh.isVisibleToUser()) return false;
+        Rect before = new Rect();
+        Rect after = new Rect();
+        node.getBoundsInScreen(before);
+        fresh.getBoundsInScreen(after);
+        if (!before.equals(after) || after.isEmpty()
+                || !text(node.getText()).equals(text(fresh.getText()))
+                || !text(node.getContentDescription()).equals(text(fresh.getContentDescription()))
+                || !text(node.getClassName()).equals(text(fresh.getClassName()))
+                || !text(node.getPackageName()).equals(text(fresh.getPackageName()))) return false;
+        return tap(after.centerX(), after.centerY(), 1000L);
     }
 
     boolean setText(JSONObject selector, String value) {
@@ -252,7 +271,8 @@ public final class ControlAccessibilityService extends AccessibilityService {
                 if (match != null) return null;
                 match = node;
             }
-            for (int index = 0; index < node.getChildCount(); index++) {
+            int childCount = node.getChildCount();
+            for (int index = 0; index < childCount; index++) {
                 AccessibilityNodeInfo child = node.getChild(index);
                 if (child != null) queue.addLast(child);
             }

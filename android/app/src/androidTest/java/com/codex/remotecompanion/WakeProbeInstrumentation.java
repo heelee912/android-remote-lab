@@ -7,8 +7,12 @@ import java.lang.reflect.Method;
 
 /** Real Android display regression, isolated from the relay and app account. */
 public final class WakeProbeInstrumentation extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    private Bundle probeArguments;
+    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); probeArguments = arguments; start(); }
     @Override public void onStart() {
+        if (probeArguments != null && "click".equals(probeArguments.getString("probe"))) {
+            ClickFallbackProbeInstrumentation.run(this); return;
+        }
         Bundle result = new Bundle();
         DisplayLease lease = null;
         try {
