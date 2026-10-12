@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { loadConfig } = require('./config.js');
+const { fileURLToPath } = require('node:url');
 
 function run(command, args) {
   return spawnSync(command, args, { encoding: 'utf8', windowsHide: true });
@@ -94,9 +95,16 @@ function processState(config) {
 export function classifyState({ infrastructure, active, minimumCompanionVersionCode = 7 }) {
   if (!infrastructure) return 'INFRASTRUCTURE_UNHEALTHY';
   if (!active) return 'WAITING_FOR_PHONE';
-  if (active.keyguardLocked === true) return 'PHONE_LOCKED';
+  const modern = Number(active.versionCode) >= 9;
+  if (modern && active.userUnlocked === false) return 'USER_STORAGE_LOCKED';
+  if (active.secureKeyguardLocked === true) return 'PHONE_LOCKED';
+  if (!modern && active.keyguardLocked === true) return 'LEGACY_LOCK_UNVERIFIED';
+  if (modern && active.screenInteractive === false) return 'SCREEN_OFF';
+  if (modern && active.keyguardLocked === true) return 'KEYGUARD_SHOWING';
   if (active.accessibilityReady === false) return 'ACCESSIBILITY_UNAVAILABLE';
-  const deviceVerified = active.keyguardLocked === false && active.accessibilityReady === true;
+  const deviceVerified = (modern
+    ? active.secureKeyguardLocked === false && active.screenInteractive === true && active.userUnlocked === true
+    : active.keyguardLocked === false) && active.accessibilityReady === true;
   const companionVersionCode = Number(active.versionCode);
   if (deviceVerified && (!Number.isSafeInteger(companionVersionCode)
       || companionVersionCode < minimumCompanionVersionCode)) return 'COMPANION_UPDATE_REQUIRED';
@@ -126,16 +134,36 @@ export async function doctor({ repair = false } = {}) {
     && processes.launchers === 1
     && processes.relays === 1
     && processes.consoleHosts === 0;
+  const beforeWake = classifyState({ infrastructure, active: local.active });
+  let wake = null;
+  if (repair && infrastructure && ['SCREEN_OFF', 'KEYGUARD_SHOWING'].includes(beforeWake)) {
+    const client = fileURLToPath(new URL('./client.js', import.meta.url));
+    const result = run(process.execPath, [client, 'session-start', '60']);
+    try { wake = JSON.parse(result.stdout); } catch { wake = { ok: false, error: result.stderr.trim() }; }
+    if (result.status !== 0) wake = { ok: false, error: result.stderr.trim() || 'wake-failed' };
+    // Refresh heartbeat state. Do not report READY from the submitted wake alone.
+    for (let attempt = 0; attempt < 12 && wake.ok; attempt++) {
+      local = await apiStatus(config);
+      if (local.active?.screenInteractive === true && local.active?.keyguardLocked === false) break;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
   const minimumCompanionVersionCode = 7;
   const state = classifyState({ infrastructure, active: local.active, minimumCompanionVersionCode });
+  if (wake?.ok && state !== 'READY') {
+    run(process.execPath, [fileURLToPath(new URL('./client.js', import.meta.url)), 'session-stop']);
+  }
   return {
     ok: state === 'READY',
     state,
+    wake,
     endpoint: `${config.relayHost}:${config.publicPort}`,
     task,
     funnel,
     processes,
     device: local.active || null,
+    selectedDeviceId: local.selectedDeviceId || local.active?.deviceId || null,
+    connectedDevices: local.connectedDevices || (local.active ? [local.active] : []),
     controlLease: local.controlLease || null,
     pendingDevices: local.pendingDevices || [],
     limits: {

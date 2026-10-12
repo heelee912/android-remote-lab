@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { classifyState } from '../src/doctor.mjs';
+const ready = {versionCode:9,userUnlocked:true,secureKeyguardLocked:false,screenInteractive:true,keyguardLocked:false,accessibilityReady:true};
+const state = a=>classifyState({infrastructure:true,active:{...ready,...a}});
+assert.equal(state({screenInteractive:false,keyguardLocked:true}),'SCREEN_OFF');
+assert.equal(state({screenInteractive:false,secureKeyguardLocked:true,keyguardLocked:true}),'PHONE_LOCKED');
+assert.equal(state({userUnlocked:false}),'USER_STORAGE_LOCKED');
+assert.equal(state({keyguardLocked:true}),'KEYGUARD_SHOWING');
+assert.equal(state({}),'READY');
+assert.equal(classifyState({infrastructure:true,active:null}),'WAITING_FOR_PHONE');
+assert.equal(state({versionCode:8,keyguardLocked:true}),'LEGACY_LOCK_UNVERIFIED');
+assert.equal(state({secureKeyguardLocked:null}),'CONNECTED_UNVERIFIED');
+console.log('8 readiness cases passed: asleep, secure locked, storage locked, swipe screen, awake, disconnected, legacy, unverified');

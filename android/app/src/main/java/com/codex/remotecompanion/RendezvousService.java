@@ -241,7 +241,11 @@ public final class RendezvousService extends Service {
                     Protocol.write(output, new JSONObject()
                             .put("type", "pong")
                             .put("sentAt", frame.optLong("sentAt"))
-                            .put("keyguardLocked", keyguard != null && keyguard.isKeyguardLocked())
+                            .put("keyguardLocked", DeviceReadiness.keyguardShowing(this))
+                            .put("secureKeyguardLocked", DeviceReadiness.secureLocked(this))
+                            .put("supportsAtomicGuards", true)
+                            .put("screenInteractive", DeviceReadiness.interactive(this))
+                            .put("userUnlocked", ((UserManager) getSystemService(USER_SERVICE)).isUserUnlocked())
                             .put("accessibilityReady", ControlAccessibilityService.getInstance() != null)
                             .put("versionCode", BuildConfig.VERSION_CODE)
                             .put("versionName", BuildConfig.VERSION_NAME));

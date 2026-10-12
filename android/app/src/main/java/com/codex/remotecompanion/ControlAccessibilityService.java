@@ -121,7 +121,9 @@ public final class ControlAccessibilityService extends AccessibilityService {
     }
 
     boolean click(JSONObject selector) {
-        AccessibilityNodeInfo node = findNode(selector);
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (selector.has("guard") && !guardMatches(root, selector.optJSONObject("guard"))) throw new IllegalStateException("Atomic UI guard changed");
+        AccessibilityNodeInfo node = findNode(root, selector);
         if (node == null || node.isPassword()) {
             return false;
         }
@@ -209,33 +211,53 @@ public final class ControlAccessibilityService extends AccessibilityService {
         return accepted && done.await(timeoutMillis, TimeUnit.MILLISECONDS) && completed.get();
     }
 
-    private AccessibilityNodeInfo findNode(JSONObject selector) {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) {
-            return null;
-        }
+    private boolean guardMatches(AccessibilityNodeInfo root, JSONObject guard) {
+        try {
+            if (root == null || guard == null || !guard.getString("expectedPackage").equals(text(root.getPackageName()))) return false;
+            AccessibilityNodeInfo scope = findNode(root, guard.getJSONObject("root"));
+            if (scope == null) return false;
+            org.json.JSONArray checks = guard.getJSONArray("nodes");
+            if (checks.length() == 0) return false;
+            for (int i = 0; i < checks.length(); i++) if (findNode(scope, checks.getJSONObject(i)) == null) return false;
+            return true;
+        } catch (Exception error) { return false; }
+    }
+
+    private AccessibilityNodeInfo findNode(JSONObject selector) { return findNode(getRootInActiveWindow(), selector); }
+
+    private AccessibilityNodeInfo findNode(AccessibilityNodeInfo root, JSONObject selector) {
+        if (root == null) return null;
+        String expected = selector.optString("expectedPackage", "");
+        if (!expected.isEmpty() && !expected.equals(text(root.getPackageName()))) return null;
         String viewId = selector.optString("viewId", "");
         String wantedText = selector.optString("text", "");
         String description = selector.optString("contentDescription", "");
+        String wantedClass = selector.optString("className", "");
+        String wantedPackage = selector.optString("packageName", "");
+        if (viewId.isEmpty() && wantedText.isEmpty() && description.isEmpty() && !(selector.optBoolean("editable", false) && !wantedClass.isEmpty())) return null;
         ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
         queue.add(root);
         int visited = 0;
+        AccessibilityNodeInfo match = null;
         while (!queue.isEmpty() && visited++ < MAX_TREE_NODES) {
             AccessibilityNodeInfo node = queue.removeFirst();
-            boolean matches = (!viewId.isEmpty() && viewId.equals(node.getViewIdResourceName()))
-                    || (!wantedText.isEmpty() && wantedText.equals(text(node.getText())))
-                    || (!description.isEmpty() && description.equals(text(node.getContentDescription())));
+            boolean matches = node.isEnabled() && node.isVisibleToUser() && !node.isPassword()
+                    && (!selector.has("editable") || selector.optBoolean("editable") == node.isEditable())
+                    && (viewId.isEmpty() || viewId.equals(node.getViewIdResourceName()))
+                    && (wantedText.isEmpty() || wantedText.equals(text(node.getText())))
+                    && (description.isEmpty() || description.equals(text(node.getContentDescription())))
+                    && (wantedClass.isEmpty() || wantedClass.equals(text(node.getClassName())))
+                    && (wantedPackage.isEmpty() || wantedPackage.equals(text(node.getPackageName())));
             if (matches) {
-                return node;
+                if (match != null) return null;
+                match = node;
             }
             for (int index = 0; index < node.getChildCount(); index++) {
                 AccessibilityNodeInfo child = node.getChild(index);
-                if (child != null) {
-                    queue.addLast(child);
-                }
+                if (child != null) queue.addLast(child);
             }
         }
-        return null;
+        return queue.isEmpty() ? match : null;
     }
 
     private static JSONObject describeNode(AccessibilityNodeInfo node, int id, int parentId, int depth)

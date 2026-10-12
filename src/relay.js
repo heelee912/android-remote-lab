@@ -18,11 +18,16 @@ const maxAuthenticationFrameBytes = 8 * 1024;
 const maxApiBodyBytes = 1024 * 1024;
 const maxPendingEnrollments = 16;
 const pendingEnrollmentTtlMs = 60 * 60 * 1000;
+const displayLeaseMillis = 90_000;
+const displayRenewalIntervalMs = Number(config.controlLeaseRenewalIntervalMs) || 45_000;
+const displayRenewalRetryMs = Number(config.controlLeaseRenewalRetryMs) || 5_000;
+const displayRenewalTimeoutMs = Number(config.controlLeaseRenewalTimeoutMs) || 10_000;
 
 fs.mkdirSync(stateDir, { recursive: true });
 const tokenPath = path.join(stateDir, 'local-api-token.txt');
 const devicesPath = path.join(stateDir, 'devices.json');
 const pendingPath = path.join(stateDir, 'pending-enrollment.json');
+const selectionPath = path.join(stateDir, 'device-selection.json');
 if (!fs.existsSync(tokenPath)) {
   fs.writeFileSync(tokenPath, crypto.randomBytes(32).toString('base64'), { mode: 0o600 });
 }
@@ -31,7 +36,11 @@ const apiToken = fs.readFileSync(tokenPath, 'utf8').trim();
 let devices = readJson(devicesPath, {}, true);
 let pendingEnrollment = readJson(pendingPath, {});
 let active = null;
-let sequence = 0;
+let selectedDeviceId = readJson(selectionPath, {}, true).deviceId || null;
+if (fs.existsSync(selectionPath) && !/^[a-f0-9]{32}$/.test(selectedDeviceId || '')) {
+  throw new Error('invalid-device-selection');
+}
+const connections = new Map();
 let controlLease = null;
 let controlOperation = Promise.resolve();
 const pendingCommands = new Map();
@@ -202,10 +211,15 @@ const ingress = net.createServer((socket) => {
 
       authenticated = true;
       socket.setTimeout(45_000);
-      if (active && !active.socket.destroyed) active.socket.destroy();
-      active = {
+      const previous = connections.get(deviceId);
+      if (previous) {
+        if (active === previous) stopControlLease(false, 'device-reconnected');
+        previous.socket.destroy();
+      }
+      const connection = {
         socket,
         deviceId,
+        sequence: 0,
         connectedAt: new Date().toISOString(),
         lastPongAt: Date.now(),
         keyguardLocked: null,
@@ -213,25 +227,34 @@ const ingress = net.createServer((socket) => {
         versionCode: null,
         versionName: null,
       };
-      sequence = 0;
+      connections.set(deviceId, connection);
+      if (!selectedDeviceId) {
+        selectedDeviceId = deviceId;
+        writeJson(selectionPath, { deviceId });
+      }
+      if (selectedDeviceId === deviceId) active = connection;
       sendFrame(socket, { type: 'auth_ok', sessionId: crypto.randomUUID() });
       log(`authenticated device connected device=${deviceId}`);
       return;
     }
 
     if (frame.type === 'pong') {
-      if (active && active.socket === socket) {
-        active.lastPongAt = Date.now();
-        if (typeof frame.keyguardLocked === 'boolean') active.keyguardLocked = frame.keyguardLocked;
-        if (typeof frame.accessibilityReady === 'boolean') active.accessibilityReady = frame.accessibilityReady;
-        if (Number.isSafeInteger(frame.versionCode) && frame.versionCode > 0) active.versionCode = frame.versionCode;
-        if (typeof frame.versionName === 'string' && frame.versionName.length <= 64) active.versionName = frame.versionName;
+      const connection = connections.get(deviceId);
+      if (connection?.socket === socket) {
+        connection.lastPongAt = Date.now();
+        if (typeof frame.keyguardLocked === 'boolean') connection.keyguardLocked = frame.keyguardLocked;
+        for (const field of ['secureKeyguardLocked', 'screenInteractive', 'userUnlocked', 'supportsAtomicGuards']) {
+          if (typeof frame[field] === 'boolean') connection[field] = frame[field];
+        }
+        if (typeof frame.accessibilityReady === 'boolean') connection.accessibilityReady = frame.accessibilityReady;
+        if (Number.isSafeInteger(frame.versionCode) && frame.versionCode > 0) connection.versionCode = frame.versionCode;
+        if (typeof frame.versionName === 'string' && frame.versionName.length <= 64) connection.versionName = frame.versionName;
       }
       return;
     }
     if (frame.type !== 'response') return;
     const request = pendingCommands.get(frame.requestId);
-    if (!request || request.seq !== frame.seq) return;
+    if (!request || request.socket !== socket || request.seq !== frame.seq) return;
     pendingCommands.delete(frame.requestId);
     clearTimeout(request.timer);
     request.resolve(frame);
@@ -239,29 +262,34 @@ const ingress = net.createServer((socket) => {
 
   socket.on('timeout', () => socket.destroy(new Error('socket-timeout')));
   socket.on('close', () => {
+    if (connections.get(deviceId)?.socket === socket) connections.delete(deviceId);
     if (active && active.socket === socket) {
       active = null;
       stopControlLease(false, 'device-disconnected');
-      for (const [requestId, request] of pendingCommands) {
-        clearTimeout(request.timer);
-        request.reject(new Error('device-disconnected'));
-        pendingCommands.delete(requestId);
-      }
-      log(`authenticated device disconnected device=${deviceId || 'unknown'}`);
     }
+    for (const [requestId, request] of pendingCommands) {
+      if (request.socket !== socket) continue;
+      clearTimeout(request.timer);
+      request.reject(new Error('device-disconnected'));
+      pendingCommands.delete(requestId);
+    }
+    log(`authenticated device disconnected device=${deviceId || 'unknown'}`);
   });
   socket.on('error', (error) => log(`ingress socket error=${error.code || error.name}`));
 });
 ingress.maxConnections = 16;
 
 setInterval(() => {
-  if (!active || active.socket.destroyed) return;
-  const heartbeatTimeoutMs = pendingCommands.size > 0 ? 130_000 : 40_000;
-  if (Date.now() - active.lastPongAt > heartbeatTimeoutMs) {
-    active.socket.destroy(new Error('heartbeat-timeout'));
-    return;
+  for (const connection of connections.values()) {
+    if (connection.socket.destroyed) continue;
+    const busy = [...pendingCommands.values()].some((item) => item.socket === connection.socket);
+    const heartbeatTimeoutMs = busy ? 130_000 : 40_000;
+    if (Date.now() - connection.lastPongAt > heartbeatTimeoutMs) {
+      connection.socket.destroy(new Error('heartbeat-timeout'));
+      continue;
+    }
+    sendFrame(connection.socket, { type: 'ping', sentAt: Date.now() });
   }
-  sendFrame(active.socket, { type: 'ping', sentAt: Date.now() });
 }, 10_000).unref();
 
 function authenticateApi(request) {
@@ -302,21 +330,22 @@ function readBody(request) {
 function invokeCommand(command, args, timeoutMs) {
   if (!active || active.socket.destroyed) return Promise.reject(new Error('device-not-connected'));
   const requestId = crypto.randomUUID();
-  const seq = ++sequence;
+  const target = active;
+  const seq = ++target.sequence;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingCommands.delete(requestId);
       reject(new Error('command-timeout'));
     }, Math.max(1_000, Math.min(Number(timeoutMs) || 20_000, 120_000)));
-    pendingCommands.set(requestId, { seq, resolve, reject, timer });
-    sendFrame(active.socket, { type: 'command', requestId, seq, command, args: args || {} });
+    pendingCommands.set(requestId, { seq, socket: target.socket, resolve, reject, timer });
+    sendFrame(target.socket, { type: 'command', requestId, seq, command, args: args || {} });
   });
 }
 
-async function startControlLease(requestedMillis, requestedOwner, force = false) {
+async function startControlLease(requestedMillis, requestedOwner, force = false, displayOnly = false) {
   const owner = normalizedOwner(requestedOwner);
   if (!owner) return { ok: false, error: 'control-owner-required' };
-  const durationMillis = Math.max(60_000, Math.min(Number(requestedMillis) || 10 * 60_000, 30 * 60_000));
+  const durationMillis = Math.max(60_000, Math.min(Number(requestedMillis) || 60 * 60_000, 8 * 60 * 60_000));
   if (controlLease && controlLease.expiresAt > Date.now() && controlLease.owner !== owner && !force) {
     return {
       ok: false,
@@ -325,31 +354,59 @@ async function startControlLease(requestedMillis, requestedOwner, force = false)
       expiresAt: new Date(controlLease.expiresAt).toISOString(),
     };
   }
-  const first = await invokeCommand('lease', { leaseMillis: 90_000 }, 10_000);
+  const target = active;
+  const first = await invokeCommand(displayOnly ? 'wake' : 'lease', { leaseMillis: displayLeaseMillis }, displayRenewalTimeoutMs);
   if (!first.ok) return first;
+  if (active !== target || target.socket.destroyed) return { ok: false, error: 'device-disconnected' };
   stopControlLease(false, 'replaced');
   const expiresAt = Date.now() + durationMillis;
-  const timer = setInterval(async () => {
-    if (!controlLease || controlLease.expiresAt <= Date.now()) {
-      stopControlLease(true, 'expired');
+  controlLease = { expiresAt, timer: null, owner, deviceId: active.deviceId };
+  scheduleControlLeaseRenewal(controlLease, displayRenewalIntervalMs);
+  log(`control lease started owner=${owner} durationMs=${durationMillis}`);
+  return { ok: true, result: { expiresAt: new Date(expiresAt).toISOString(), durationMillis, owner, deviceId: active.deviceId } };
+}
+
+function scheduleControlLeaseRenewal(lease, requestedDelayMs) {
+  if (controlLease !== lease) return;
+  const remainingMillis = lease.expiresAt - Date.now();
+  if (remainingMillis <= 0) {
+    stopControlLease(true, 'expired');
+    return;
+  }
+  const delayMillis = Math.max(10, Math.min(requestedDelayMs, remainingMillis));
+  lease.timer = setTimeout(() => renewControlLease(lease), delayMillis);
+  lease.timer.unref();
+}
+
+async function renewControlLease(lease) {
+  if (controlLease !== lease) return;
+  if (lease.expiresAt <= Date.now()) {
+    stopControlLease(true, 'expired');
+    return;
+  }
+  try {
+    const renewed = await invokeCommand(
+      'lease', { leaseMillis: displayLeaseMillis }, displayRenewalTimeoutMs);
+    if (controlLease !== lease) return;
+    if (!renewed.ok) {
+      stopControlLease(true, 'renewal-rejected');
       return;
     }
-    try {
-      const renewed = await invokeCommand('lease', { leaseMillis: 90_000 }, 10_000);
-      if (!renewed.ok) stopControlLease(true, 'renewal-rejected');
-    } catch {
-      stopControlLease(false, 'renewal-failed');
+    scheduleControlLeaseRenewal(lease, displayRenewalIntervalMs);
+  } catch (error) {
+    if (controlLease !== lease) return;
+    if (!active || active.socket.destroyed) {
+      stopControlLease(false, 'device-disconnected');
+      return;
     }
-  }, 45_000);
-  timer.unref();
-  controlLease = { expiresAt, timer, owner };
-  log(`control lease started owner=${owner} durationMs=${durationMillis}`);
-  return { ok: true, result: { expiresAt: new Date(expiresAt).toISOString(), durationMillis, owner } };
+    log(`control lease renewal retry error=${error.code || error.message || error.name}`);
+    scheduleControlLeaseRenewal(lease, displayRenewalRetryMs);
+  }
 }
 
 function stopControlLease(releaseDevice, reason) {
   const previous = controlLease;
-  if (previous) clearInterval(previous.timer);
+  if (previous?.timer) clearTimeout(previous.timer);
   controlLease = null;
   if (previous) log(`control lease stopped reason=${reason}`);
   if (releaseDevice && active && !active.socket.destroyed) {
@@ -363,6 +420,26 @@ function ownerControlsDevice(owner) {
     && controlLease.owner === normalizedOwner(owner);
 }
 
+function connectionStatus(connection) {
+  return {
+    deviceId: connection.deviceId,
+    connectedAt: connection.connectedAt,
+    lastPongAt: new Date(connection.lastPongAt).toISOString(),
+    keyguardLocked: connection.keyguardLocked,
+    secureKeyguardLocked: connection.secureKeyguardLocked ?? null,
+    screenInteractive: connection.screenInteractive ?? null,
+    userUnlocked: connection.userUnlocked ?? null,
+    supportsAtomicGuards: connection.supportsAtomicGuards ?? false,
+    accessibilityReady: connection.accessibilityReady,
+    versionCode: connection.versionCode,
+    versionName: connection.versionName,
+  };
+}
+
+function targetMatches(body) {
+  return !body.deviceId || body.deviceId === selectedDeviceId;
+}
+
 const api = http.createServer(async (request, response) => {
   if (!authenticateApi(request)) return sendJson(response, 401, { ok: false, error: 'unauthorized' });
   try {
@@ -374,11 +451,17 @@ const api = http.createServer(async (request, response) => {
       const connected = Boolean(active && !active.socket.destroyed);
       return sendJson(response, 200, {
         ok: true,
+        selectedDeviceId,
+        connectedDevices: [...connections.values()].filter((item) => !item.socket.destroyed).map(connectionStatus),
         active: connected ? {
           deviceId: active.deviceId,
           connectedAt: active.connectedAt,
           lastPongAt: new Date(active.lastPongAt).toISOString(),
           keyguardLocked: active.keyguardLocked,
+          secureKeyguardLocked: active.secureKeyguardLocked ?? null,
+          screenInteractive: active.screenInteractive ?? null,
+          userUnlocked: active.userUnlocked ?? null,
+          supportsAtomicGuards: active.supportsAtomicGuards ?? false,
           accessibilityReady: active.accessibilityReady,
           versionCode: active.versionCode,
           versionName: active.versionName,
@@ -386,9 +469,24 @@ const api = http.createServer(async (request, response) => {
         controlLease: controlLease ? {
           expiresAt: new Date(controlLease.expiresAt).toISOString(),
           owner: controlLease.owner,
+          deviceId: controlLease.deviceId,
         } : null,
         enrolledDevices: Object.keys(devices),
         pendingDevices: Object.keys(pendingEnrollment),
+      });
+    }
+    if (request.method === 'POST' && request.url === '/select') {
+      const body = await readBody(request);
+      return await serializeControl(async () => {
+        const deviceId = String(body.deviceId || '');
+        if (!devices[deviceId]) return sendJson(response, 404, { ok: false, error: 'device-not-enrolled' });
+        if (controlLease || pendingCommands.size) {
+          return sendJson(response, 409, { ok: false, error: 'stop-session-before-device-selection', owner: controlLease?.owner });
+        }
+        writeJson(selectionPath, { deviceId });
+        selectedDeviceId = deviceId;
+        active = connections.get(deviceId) || null;
+        return sendJson(response, 200, { ok: true, deviceId, connected: Boolean(active && !active.socket.destroyed) });
       });
     }
     if (request.method === 'POST' && request.url === '/enroll') {
@@ -406,6 +504,7 @@ const api = http.createServer(async (request, response) => {
     }
     if (request.method === 'POST' && request.url === '/command') {
       const body = await readBody(request);
+      if (!targetMatches(body)) return sendJson(response, 409, { ok: false, error: 'selected-device-changed' });
       if (typeof body.command !== 'string') return sendJson(response, 400, { ok: false, error: 'command-required' });
       if (!ownerControlsDevice(body.owner)) {
         return sendJson(response, 409, {
@@ -421,13 +520,15 @@ const api = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/control/start') {
       const body = await readBody(request);
       return await serializeControl(async () => {
-        const result = await startControlLease(body.durationMillis, body.owner, body.force === true);
+        if (!targetMatches(body)) return sendJson(response, 409, { ok: false, error: 'selected-device-changed' });
+        const result = await startControlLease(body.durationMillis, body.owner, body.force === true, body.displayOnly === true);
         return sendJson(response, result.ok ? 200 : 409, result);
       });
     }
     if (request.method === 'POST' && request.url === '/control/stop') {
       const body = await readBody(request);
       return await serializeControl(async () => {
+        if (!targetMatches(body)) return sendJson(response, 409, { ok: false, error: 'selected-device-changed' });
         const owner = normalizedOwner(body.owner);
         if (controlLease && controlLease.owner !== owner && body.force !== true) {
           return sendJson(response, 409, {

@@ -4,10 +4,19 @@
 
 - `arlab doctor --repair --json` is the authoritative preflight.
 - One Codex thread owns the phone at a time. The relay rejects commands from another thread while the owner's lease is active.
-- Ordinary device commands maintain a bounded display lease. `arlab session stop` releases it immediately; disconnect and expiry also release it.
+- Multiple enrolled devices may remain connected. Only the explicitly selected device receives commands or display wake leases. `arlab select <device-id>` requires the current session to be stopped; selection is persisted, with no fallback to another device when it is offline. Snapshots bind their element references to the originating device.
+- Ordinary device commands maintain a bounded 60-minute display lease by default, including idle waits between commands. `arlab session stop` releases it immediately; disconnect and expiry also release it. Starting a session with an explicit minute value overrides the default within the relay's bounded limit.
 - The Android Companion connects only through an active, validated Android VPN. It does not replace or disable that VPN.
 - The local control API binds only to loopback and requires a random token. The public endpoint exposes only the authenticated device ingress.
 - Password nodes are redacted. Android secure keyguard and secure screenshot surfaces remain enforced.
+
+## Legacy lock telemetry
+
+`LEGACY_LOCK_UNVERIFIED` means the older Companion only reports keyguard visibility. It is not proof of a PIN/password lock. Do not issue legacy UI commands on this ambiguous state; after one physical wake, update through the supported installer. Modern display-only `wake` verifies the screen is interactive without dismissing a secure keyguard. UI control still requires unlocked user storage and no secure lock.
+
+## Display readiness
+
+Companion 1.1.3+ reports `screenInteractive`, `secureKeyguardLocked`, and `userUnlocked`. `SCREEN_OFF` means a connected unlocked device is asleep; repair wakes it via the existing bounded wake lease and confirms actual interactive state. `KEYGUARD_SHOWING` is an unsecured swipe screen. Only a screen Android reports as not device-locked may be dismissed with requestDismissKeyguard, including an already trusted swipe state. Actual authentication is never performed automatically. `PHONE_LOCKED` still blocks all UI commands; no PIN, password, trust, or biometric bypass is provided. Existing awake screens are kept awake without power toggles.
 
 ## Doctor States
 

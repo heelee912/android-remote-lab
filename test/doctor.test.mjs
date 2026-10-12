@@ -6,7 +6,7 @@ assert.equal(classifyState({ infrastructure: true, active: null }), 'WAITING_FOR
 assert.equal(classifyState({
   infrastructure: true,
   active: { keyguardLocked: true, accessibilityReady: true, versionCode: 7 },
-}), 'PHONE_LOCKED');
+}), 'LEGACY_LOCK_UNVERIFIED');
 assert.equal(classifyState({
   infrastructure: true,
   active: { keyguardLocked: false, accessibilityReady: false, versionCode: 7 },

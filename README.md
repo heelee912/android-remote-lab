@@ -37,6 +37,8 @@ arlab doctor --repair --json
 
 Never enroll an unexplained pending ID. For migration to another Windows PC, securely copy only the old `%LOCALAPPDATA%\AndroidRemoteLab\state\devices.json`, run `arlab setup --import-state <folder-containing-devices-json>` on the new PC, then change the Companion endpoint to the new DNS name and verify the same Device ID reconnects.
 
+For multiple devices, inspect `arlab device devices --json`, stop any control session, and run `arlab select <device-id>`. Selection persists locally across relay restarts; an offline selected device never redirects commands to another connected device. Prefer a dedicated test tablet for ordinary app development and use a personal phone only for requested phone-specific checks.
+
 Doctor returns `READY` only when Companion `versionCode >= 7` reports both an unlocked keyguard and an active Accessibility service. `PHONE_LOCKED`, `ACCESSIBILITY_UNAVAILABLE`, `COMPANION_UPDATE_REQUIRED`, and `CONNECTED_UNVERIFIED` are non-ready states; the last two require a Companion upgrade.
 
 After setup, close the Companion activity. Its connection service stays in the background, starts again after package replacement and boot, and reconnects after the first secure unlock. Android requires an ongoing foreground-service indicator; the Companion channel is low-importance, silent, non-vibrating, and badge-free.
@@ -79,7 +81,7 @@ Require Companion `versionCode >= 7` in diagnostics. The CLI hashes the APK, upl
 - The Android app refuses to connect without an active VPN carrying `INTERNET` and `VALIDATED` capabilities.
 - Release workflows rebuild the GUI-subsystem launcher from source, verify its manifest, publish SHA-256 files, and issue GitHub build provenance.
 
-The owner lease prevents accidental concurrent control by cooperative Codex tasks. It is not a security boundary against another process already running as the same Windows user with access to the local API token.
+The owner lease prevents accidental concurrent control by cooperative Codex tasks. It is not a security boundary against another process already running as the same Windows user with access to the local API token. A command-created or default explicit session is bounded to 60 minutes and keeps the display awake during idle waits; pass an explicit minute value when a shorter or longer session is needed. The relay releases display wake state on session stop, expiry, or device disconnect.
 
 ## Exact limits
 

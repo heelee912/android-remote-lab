@@ -41,7 +41,7 @@ function parseArguments(argv) {
       flags.add(value);
       continue;
     }
-    if (value === '--session') {
+    if (value === '--session' || value === '--guard-file') {
       values.set(value, argv[++index] || fail('--session requires a value'));
       continue;
     }
@@ -102,17 +102,19 @@ function snapshot(session, json) {
   emit({
     session,
     capturedAt: stored.capturedAt,
+    deviceId: stored.deviceId || null,
     rootPackageName: stored.rootPackageName || null,
     rootClassName: stored.rootClassName || null,
     truncated: Boolean(stored.truncated),
     nodes,
+    tree: stored.nodes || nodes,
   }, true);
 }
 
 function usage() {
   process.stdout.write([
     'agent-device-companion <command> [args] [--session name] [--json]',
-    'Commands: devices, capabilities, connection, diagnostics, open, snapshot, press, click, fill, swipe, home, back, app-switcher, screenshot, install, install-status, close',
+    'Commands: devices, capabilities, connection, diagnostics, wake, open, snapshot, press, click, fill, swipe, home, back, app-switcher, screenshot, install, install-status, close',
   ].join('\n') + '\n');
 }
 
@@ -128,21 +130,25 @@ if (!command || command === '--help' || command === '-h' || command === 'help') 
 switch (command) {
   case 'devices': {
     const status = parseCompanionJson(['status']);
-    const devices = status.active ? [{
-      id: status.active.deviceId,
+    const devices = (status.connectedDevices || (status.active ? [status.active] : [])).map((device) => ({
+      id: device.deviceId,
+      selected: device.deviceId === (status.selectedDeviceId || status.active?.deviceId),
       name: 'Enrolled Android device',
       platform: 'android',
       transport: 'companion',
-    }] : [];
+    }));
     emit({ devices }, json);
     break;
   }
   case 'capabilities':
-    emit({ availableCommands: ['diagnostics', 'open', 'snapshot', 'press', 'click', 'fill', 'swipe', 'home', 'back', 'app-switcher', 'screenshot', 'install', 'install-status', 'close'] }, json);
+    emit({ availableCommands: ['diagnostics', 'wake', 'open', 'snapshot', 'press', 'click', 'fill', 'swipe', 'home', 'back', 'app-switcher', 'screenshot', 'install', 'install-status', 'close'] }, json);
     break;
   case 'connection':
   case 'status':
     emit(parseCompanionJson(['status']), json);
+    break;
+  case 'wake':
+    emit(parseCompanionJson(['wake']), json);
     break;
   case 'diagnostics':
     emit(parseCompanionJson(['diagnostics']), json);
@@ -173,7 +179,7 @@ switch (command) {
     } else if (args.length >= 2 && Number.isFinite(Number(args[0])) && Number.isFinite(Number(args[1]))) {
       emit(parseCompanionJson(['tap', args[0], args[1]]), json);
     } else {
-      emit(parseCompanionJson(['click', selector(args[0]), session]), json);
+      emit(parseCompanionJson(['click', selector(args[0]), session, ...(parsed.values.has('--guard-file') ? ['--guard-file', parsed.values.get('--guard-file')] : [])]), json);
     }
     break;
   }

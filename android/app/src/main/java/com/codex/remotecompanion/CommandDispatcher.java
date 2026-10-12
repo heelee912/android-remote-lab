@@ -4,6 +4,7 @@ import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.UserManager;
+import android.os.SystemClock;
 
 import org.json.JSONObject;
 
@@ -29,10 +30,31 @@ final class CommandDispatcher {
                     .put("leaseRemainingMillis", displayLease.remainingMillis());
         }
 
-        assertControlReady();
+        if ("wake".equals(command)) {
+            // Display-only wake never dismisses or authenticates any keyguard.
+            assertConnectionReady();
+            boolean before = DeviceReadiness.interactive(context);
+            long duration = displayLease.renew(args.optLong("leaseMillis", 120_000L));
+            try { awaitInteractive(); }
+            catch (Exception error) { displayLease.release(); throw error; }
+            return DeviceReadiness.add(context, new JSONObject()
+                    .put("leaseMillis", duration).put("alreadyInteractive", before));
+        }
+        assertTransportReady();
+        boolean alreadyInteractive = DeviceReadiness.interactive(context);
+        if (DeviceReadiness.secureLocked(context)) {
+            throw new SecurityException("Secure keyguard is locked");
+        }
         long lease = displayLease.renew(args.optLong("leaseMillis", 120_000L));
+        try {
+            awaitDisplayReady();
+        } catch (Exception error) {
+            displayLease.release();
+            throw error;
+        }
         if ("lease".equals(command)) {
-            return new JSONObject().put("leaseMillis", lease);
+            return DeviceReadiness.add(context, new JSONObject()
+                    .put("leaseMillis", lease).put("alreadyInteractive", alreadyInteractive));
         }
 
         ControlAccessibilityService accessibility = ControlAccessibilityService.getInstance();
@@ -109,21 +131,41 @@ final class CommandDispatcher {
         }
     }
 
-    private void assertControlReady() {
+    private void awaitInteractive() {
+        long deadline = SystemClock.elapsedRealtime() + 3000L;
+        while (!DeviceReadiness.interactive(context) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(25L);
+        if (!DeviceReadiness.interactive(context)) throw new IllegalStateException("Display wake timed out");
+    }
+
+    private void awaitDisplayReady() {
+        awaitInteractive();
+        long deadline = SystemClock.elapsedRealtime() + 3000L;
+        if (DeviceReadiness.secureLocked(context)) throw new SecurityException("Secure keyguard is locked");
+        if (DeviceReadiness.keyguardShowing(context)) {
+            Intent wake = new Intent(context, WakeActivity.class);
+            wake.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            context.startActivity(wake);
+            while (DeviceReadiness.keyguardShowing(context) && SystemClock.elapsedRealtime() < deadline) {
+                if (DeviceReadiness.secureLocked(context)) throw new SecurityException("Secure keyguard is locked");
+                SystemClock.sleep(25L);
+            }
+        }
+        if (DeviceReadiness.keyguardShowing(context)) throw new IllegalStateException("Keyguard dismissal timed out");
+    }
+
+    private void assertTransportReady() {
         UserManager users = (UserManager) context.getSystemService(Context.USER_SERVICE);
         if (users == null || !users.isUserUnlocked()) {
             throw new SecurityException("Android user storage is locked");
         }
-        KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
-        if (keyguard != null && keyguard.isKeyguardLocked()) {
-            throw new SecurityException("Secure keyguard is locked");
-        }
-        if (!RendezvousService.hasValidatedVpn(context)) {
-            throw new SecurityException("Validated VPN is unavailable");
-        }
+        assertConnectionReady();
         if (ControlAccessibilityService.getInstance() == null) {
             throw new IllegalStateException("Accessibility service is not enabled or not bound");
         }
+    }
+
+    private void assertConnectionReady() {
+        if (!RendezvousService.hasValidatedVpn(context)) throw new SecurityException("Validated VPN is unavailable");
     }
 
     private JSONObject performed(boolean value, String operation) throws Exception {

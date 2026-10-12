@@ -167,13 +167,16 @@ async function main() {
     assert.equal(second.auth.type, 'auth_ok');
     second.socket.write(frame({
       type: 'pong', sentAt: Date.now(), keyguardLocked: false, accessibilityReady: true,
-      versionCode: 7, versionName: '1.1.1',
+      versionCode: 7, versionName: '1.1.1', screenInteractive: false, secureKeyguardLocked: false, userUnlocked: true,
     }));
     await delay(50);
     const deviceReadiness = await request(apiPort, token, 'GET', '/status');
     assert.equal(deviceReadiness.body.active.keyguardLocked, false);
     assert.equal(deviceReadiness.body.active.accessibilityReady, true);
     assert.equal(deviceReadiness.body.active.versionCode, 7);
+    assert.equal(deviceReadiness.body.active.screenInteractive, false);
+    assert.equal(deviceReadiness.body.active.secureKeyguardLocked, false);
+    assert.equal(deviceReadiness.body.active.userUnlocked, true);
     assert.equal(deviceReadiness.body.active.versionName, '1.1.1');
     const owner = 'test-thread';
     const startLeasePromise = request(apiPort, token, 'POST', '/control/start', {
@@ -304,7 +307,139 @@ async function main() {
       ok: true, result: { released: true },
     }));
     assert.equal((await raceStopPromise).status, 200);
+
+    const tabletKeys = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+    const tabletDer = tabletKeys.publicKey.export({ type: 'spki', format: 'der' });
+    const tabletIdentity = {
+      privateKey: tabletKeys.privateKey,
+      publicKey: tabletDer.toString('base64'),
+      deviceId: crypto.createHash('sha256').update(tabletDer).digest('hex').slice(0, 32),
+    };
+    const pendingTablet = await connectAndAuthenticate(ingressPort, tabletIdentity);
+    assert.equal(pendingTablet.auth.type, 'enrollment_required');
+    pendingTablet.socket.destroy();
+    assert.equal((await request(apiPort, token, 'POST', '/enroll', { deviceId: tabletIdentity.deviceId })).status, 200);
+    const tablet = await connectAndAuthenticate(ingressPort, tabletIdentity);
+    assert.equal(tablet.auth.type, 'auth_ok');
+    tablet.socket.write(frame({ type: 'pong', keyguardLocked: false, accessibilityReady: true, versionCode: 7 }));
+    await delay(25);
+    const bothDevices = (await request(apiPort, token, 'GET', '/status')).body;
+    assert.equal(bothDevices.connectedDevices.length, 2);
+    assert.equal(bothDevices.active.deviceId, identity.deviceId);
+    assert.equal(second.socket.destroyed, false);
+    assert.equal((await request(apiPort, token, 'POST', '/select', { deviceId: tabletIdentity.deviceId })).status, 200);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(state, 'device-selection.json'))).deviceId, tabletIdentity.deviceId);
+    const wrongDevice = await request(apiPort, token, 'POST', '/control/start', { owner, deviceId: identity.deviceId });
+    assert.equal(wrongDevice.body.error, 'selected-device-changed');
+    const tabletStart = request(apiPort, token, 'POST', '/control/start', { owner, deviceId: tabletIdentity.deviceId });
+    const tabletLease = await tablet.next();
+    const tabletResponse = { type: 'response', requestId: tabletLease.requestId, seq: tabletLease.seq, ok: true, result: { leaseMillis: 90_000 } };
+    second.socket.write(frame(tabletResponse));
+    await delay(25);
+    assert.equal((await request(apiPort, token, 'GET', '/status')).body.controlLease, null);
+    tablet.socket.write(frame(tabletResponse));
+    assert.equal((await tabletStart).body.result.deviceId, tabletIdentity.deviceId);
+    assert.equal((await request(apiPort, token, 'POST', '/select', { deviceId: identity.deviceId })).body.error, 'stop-session-before-device-selection');
+    assert.equal((await request(apiPort, token, 'POST', '/command', { owner, deviceId: identity.deviceId, command: 'diagnostics' })).body.error, 'selected-device-changed');
+    const tabletStop = request(apiPort, token, 'POST', '/control/stop', { owner, deviceId: tabletIdentity.deviceId });
+    const tabletRelease = await tablet.next();
+    assert.equal(tabletRelease.command, 'release_lease');
+    tablet.socket.write(frame({ type: 'response', requestId: tabletRelease.requestId, seq: tabletRelease.seq, ok: true, result: { released: true } }));
+    assert.equal((await tabletStop).status, 200);
+    tablet.socket.destroy();
+    await delay(50);
+    const offlineTablet = (await request(apiPort, token, 'GET', '/status')).body;
+    assert.equal(offlineTablet.active, null);
+    assert.equal(offlineTablet.selectedDeviceId, tabletIdentity.deviceId);
+    assert.equal(offlineTablet.connectedDevices[0].deviceId, identity.deviceId);
+    const restartConfigPath = path.join(state, 'restart-config.json');
+    fs.writeFileSync(restartConfigPath, JSON.stringify({
+      stateDir: state, runtimeDir, relayHost: 'relay.example.test',
+      ingressPort: ingressPort + 3, apiPort: apiPort + 3, publicPort: 10000, taskName: 'test',
+    }));
+    const restartedRelay = spawn(process.execPath, [path.join(runtimeDir, 'relay.js'), restartConfigPath], {
+      stdio: 'ignore', windowsHide: true,
+    });
+    let restartedPhone;
+    try {
+      restartedPhone = await connectAndAuthenticate(ingressPort + 3, identity);
+      assert.equal(restartedPhone.auth.type, 'auth_ok');
+      const persistedSelection = (await request(apiPort + 3, token, 'GET', '/status')).body;
+      assert.equal(persistedSelection.selectedDeviceId, tabletIdentity.deviceId);
+      assert.equal(persistedSelection.active, null);
+      assert.equal(persistedSelection.connectedDevices[0].deviceId, identity.deviceId);
+    } finally {
+      restartedPhone?.socket.destroy();
+      restartedRelay.kill();
+    }
+    assert.equal((await request(apiPort, token, 'POST', '/select', { deviceId: identity.deviceId })).status, 200);
     second.socket.destroy();
+
+    const renewalState = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-relay-renewal-test-'));
+    fs.writeFileSync(path.join(renewalState, 'devices.json'), JSON.stringify({
+      [identity.deviceId]: { publicKey: identity.publicKey, enrolledAt: new Date().toISOString() },
+    }));
+    const renewalConfig = path.join(renewalState, 'config.json');
+    fs.writeFileSync(renewalConfig, JSON.stringify({
+      stateDir: renewalState, runtimeDir, relayHost: 'relay.example.test',
+      ingressPort: ingressPort + 2, apiPort: apiPort + 2, publicPort: 10000, taskName: 'test',
+      controlLeaseRenewalIntervalMs: 250,
+      controlLeaseRenewalRetryMs: 20,
+      controlLeaseRenewalTimeoutMs: 60,
+    }));
+    const renewalRelay = spawn(process.execPath, [path.join(runtimeDir, 'relay.js'), renewalConfig], {
+      stdio: 'ignore', windowsHide: true,
+    });
+    let renewalDevice;
+    try {
+      const renewalTokenPath = path.join(renewalState, 'local-api-token.txt');
+      for (let attempt = 0; attempt < 100 && !fs.existsSync(renewalTokenPath); attempt++) await delay(25);
+      const renewalToken = fs.readFileSync(renewalTokenPath, 'utf8').trim();
+      renewalDevice = await connectAndAuthenticate(ingressPort + 2, identity);
+      assert.equal(renewalDevice.auth.type, 'auth_ok');
+
+      const renewalStart = request(apiPort + 2, renewalToken, 'POST', '/control/start', {
+        durationMillis: 60_000, owner: 'renewal-recovery-owner',
+      });
+      const initialLease = await renewalDevice.next();
+      assert.equal(initialLease.command, 'lease');
+      renewalDevice.socket.write(frame({
+        type: 'response', requestId: initialLease.requestId, seq: initialLease.seq,
+        ok: true, result: { leaseMillis: 90_000 },
+      }));
+      assert.equal((await renewalStart).status, 200);
+
+      const timedOutRenewal = await renewalDevice.next();
+      assert.equal(timedOutRenewal.command, 'lease');
+      const retriedRenewal = await Promise.race([
+        renewalDevice.next(),
+        delay(2500).then(() => { throw new Error('display lease renewal was not retried'); }),
+      ]);
+      assert.equal(retriedRenewal.command, 'lease');
+      renewalDevice.socket.write(frame({
+        type: 'response', requestId: retriedRenewal.requestId, seq: retriedRenewal.seq,
+        ok: true, result: { leaseMillis: 90_000 },
+      }));
+      await delay(25);
+      const recoveredStatus = await request(apiPort + 2, renewalToken, 'GET', '/status');
+      assert.equal(recoveredStatus.body.controlLease.owner, 'renewal-recovery-owner');
+
+      const renewalStop = request(apiPort + 2, renewalToken, 'POST', '/control/stop', {
+        owner: 'renewal-recovery-owner',
+      });
+      const recoveredRelease = await renewalDevice.next();
+      assert.equal(recoveredRelease.command, 'release_lease');
+      renewalDevice.socket.write(frame({
+        type: 'response', requestId: recoveredRelease.requestId, seq: recoveredRelease.seq,
+        ok: true, result: { released: true },
+      }));
+      assert.equal((await renewalStop).status, 200);
+      const stoppedStatus = await request(apiPort + 2, renewalToken, 'GET', '/status');
+      assert.equal(stoppedStatus.body.controlLease, null);
+    } finally {
+      renewalDevice?.socket.destroy();
+      renewalRelay.kill();
+    }
 
     const corruptState = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-relay-corrupt-test-'));
     fs.writeFileSync(path.join(corruptState, 'devices.json'), '{invalid json');
@@ -324,6 +459,17 @@ async function main() {
       });
     });
     assert.notEqual(corruptExit, 0);
+
+    fs.writeFileSync(path.join(corruptState, 'devices.json'), '{}');
+    fs.writeFileSync(path.join(corruptState, 'device-selection.json'), '{invalid json');
+    const corruptSelectionRelay = spawn(process.execPath, [path.join(runtimeDir, 'relay.js'), corruptConfig], {
+      stdio: 'ignore', windowsHide: true,
+    });
+    const corruptSelectionExit = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('relay accepted corrupt device selection')), 2000);
+      corruptSelectionRelay.once('exit', (code) => { clearTimeout(timer); resolve(code); });
+    });
+    assert.notEqual(corruptSelectionExit, 0);
     process.stdout.write('companion relay integration: PASS\n');
   } finally {
     relay.kill();

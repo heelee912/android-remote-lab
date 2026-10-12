@@ -69,6 +69,7 @@ function usage() {
     `  arlab doctor [--repair] [--json]\n` +
     `  arlab status\n` +
     `  arlab enroll DEVICE_ID\n` +
+    `  arlab select DEVICE_ID (persisted; stop the current session first)\n` +
     `  arlab session start [MINUTES] [--force]\n` +
     `  arlab session stop [--force]\n` +
     `  arlab device <agent-device-compatible command...>\n` +
@@ -87,6 +88,7 @@ switch (command) {
   }
   case 'status': runNode('src/client.js', ['status']); break;
   case 'enroll': runNode('src/client.js', ['enroll', ...args]); break;
+  case 'select': runNode('src/client.js', ['select', ...args]); break;
   case 'session': {
     const [action, ...rest] = args;
     if (action === 'start') runNode('src/client.js', ['session-start', ...rest]);
