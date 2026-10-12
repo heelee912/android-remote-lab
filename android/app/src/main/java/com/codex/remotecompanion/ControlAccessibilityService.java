@@ -130,8 +130,11 @@ public final class ControlAccessibilityService extends AccessibilityService {
         }
         AccessibilityNodeInfo current = node;
         for (int depth = 0; depth < 5 && current != null; depth++) {
-            if (current.isClickable() && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                return true;
+            if (current.isClickable()) {
+                if (current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+                // A clickable target rejecting its action is not permission to
+                // activate a broader ancestor with a different UI purpose.
+                break;
             }
             current = current.getParent();
         }

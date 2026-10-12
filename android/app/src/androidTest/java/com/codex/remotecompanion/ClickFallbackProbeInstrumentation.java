@@ -32,7 +32,7 @@ public final class ClickFallbackProbeInstrumentation extends Instrumentation {
    automation.executeShellCommand("settings put secure accessibility_enabled 1").close();
    TextView[] price=new TextView[1];
    self.runOnMainSync(()->{
-    LinearLayout box=new LinearLayout(activity);box.setOrientation(LinearLayout.VERTICAL);box.setContentDescription("test-order");
+    LinearLayout box=new LinearLayout(activity);box.setOrientation(LinearLayout.VERTICAL);box.setContentDescription("test-order");box.setOnClickListener(v->clicks.addAndGet(100));
     price[0]=new TextView(activity);price[0].setText("KRW 99,000");box.addView(price[0],new LinearLayout.LayoutParams(-1,150));
     Button button=new Button(activity){
      @Override public boolean performAccessibilityAction(int action,Bundle args){
