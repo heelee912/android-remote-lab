@@ -66,7 +66,7 @@ final class CommandDispatcher {
                 return accessibility.snapshot();
             case "global":
                 return performed(
-                        accessibility.performGlobal(args.getString("action")),
+                        accessibility.performGlobal(args.getString("action"), args.optString("expectedPackage", null)),
                         "Global action");
             case "tap":
                 return performed(

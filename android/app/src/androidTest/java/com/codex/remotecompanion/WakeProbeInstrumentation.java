@@ -10,6 +10,9 @@ public final class WakeProbeInstrumentation extends Instrumentation {
     private Bundle probeArguments;
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); probeArguments = arguments; start(); }
     @Override public void onStart() {
+        if (probeArguments != null && "dpad".equals(probeArguments.getString("probe"))) {
+            DpadProbeInstrumentation.run(this); return;
+        }
         if (probeArguments != null && ("install".equals(probeArguments.getString("probe"))
                 || "install-status".equals(probeArguments.getString("probe")))) {
             InstallProbeInstrumentation.run(this, probeArguments); return;

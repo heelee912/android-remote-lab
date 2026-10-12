@@ -93,15 +93,29 @@ public final class ControlAccessibilityService extends AccessibilityService {
         return result;
     }
 
-    boolean performGlobal(String action) {
+    boolean performGlobal(String action, String expectedPackage) {
+        String normalizedAction = action.toLowerCase(Locale.ROOT);
+        if (normalizedAction.startsWith("dpad_")) {
+            if (android.os.Build.VERSION.SDK_INT < 33) return false;
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (expectedPackage == null || expectedPackage.isBlank() || root == null
+                    || !expectedPackage.equals(text(root.getPackageName()))) {
+                throw new IllegalStateException("Keyboard input foreground package changed");
+            }
+        }
         int globalAction;
-        switch (action.toLowerCase(Locale.ROOT)) {
+        switch (normalizedAction) {
             case "back": globalAction = GLOBAL_ACTION_BACK; break;
             case "home": globalAction = GLOBAL_ACTION_HOME; break;
             case "recents": globalAction = GLOBAL_ACTION_RECENTS; break;
             case "notifications": globalAction = GLOBAL_ACTION_NOTIFICATIONS; break;
             case "quick_settings": globalAction = GLOBAL_ACTION_QUICK_SETTINGS; break;
             case "lock_screen": globalAction = GLOBAL_ACTION_LOCK_SCREEN; break;
+            case "dpad_up": globalAction = GLOBAL_ACTION_DPAD_UP; break;
+            case "dpad_down": globalAction = GLOBAL_ACTION_DPAD_DOWN; break;
+            case "dpad_left": globalAction = GLOBAL_ACTION_DPAD_LEFT; break;
+            case "dpad_right": globalAction = GLOBAL_ACTION_DPAD_RIGHT; break;
+            case "dpad_center": globalAction = GLOBAL_ACTION_DPAD_CENTER; break;
             default: return false;
         }
         return performGlobalAction(globalAction);
