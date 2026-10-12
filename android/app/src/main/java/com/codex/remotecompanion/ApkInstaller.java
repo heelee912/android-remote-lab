@@ -4,6 +4,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
+import android.content.pm.PackageInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -68,7 +69,10 @@ final class ApkInstaller {
                 PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         params.setSize(sizeBytes);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED);
+            // Let Android complete eligible self/installer-owned updates without
+            // a confirmation. New/foreign installs still need confirmation;
+            // an OS verifier may also display its own review during submission.
+            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
         }
         int sessionId = context.getPackageManager().getPackageInstaller().createSession(params);
         metadata = new JSONObject()
@@ -131,20 +135,39 @@ final class ApkInstaller {
         }
         int sessionId = metadata.getInt("sessionId");
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        try (PackageInstaller.Session session = context.getPackageManager()
-                .getPackageInstaller().openSession(sessionId);
-             InputStream input = session.openRead("base.apk")) {
-            byte[] buffer = new byte[1024 * 1024];
-            int count;
-            while ((count = input.read(buffer)) >= 0) {
-                if (count > 0) digest.update(buffer, 0, count);
+        File verifiedApk = File.createTempFile("verified-install-", ".apk", context.getCacheDir());
+        PackageInfo archive;
+        try {
+            try (PackageInstaller.Session session = context.getPackageManager()
+                    .getPackageInstaller().openSession(sessionId);
+                 InputStream input = session.openRead("base.apk");
+                 OutputStream copy = new java.io.FileOutputStream(verifiedApk)) {
+                byte[] buffer = new byte[1024 * 1024];
+                int count;
+                while ((count = input.read(buffer)) >= 0) {
+                    if (count > 0) {
+                        digest.update(buffer, 0, count);
+                        copy.write(buffer, 0, count);
+                    }
+                }
             }
-        }
-        if (!uploadId.equals(hex(digest.digest()))) {
-            abandon(context, metadata);
-            metadataFile(context, uploadId).delete();
-            throw new SecurityException("Complete APK digest mismatch");
-        }
+            if (!uploadId.equals(hex(digest.digest()))) {
+                abandon(context, metadata);
+                metadataFile(context, uploadId).delete();
+                throw new SecurityException("Complete APK digest mismatch");
+            }
+            archive = context.getPackageManager().getPackageArchiveInfo(verifiedApk.getAbsolutePath(), 0);
+            if (archive == null) throw new IllegalArgumentException("APK package metadata is invalid");
+        } finally { verifiedApk.delete(); }
+        metadata.put("packageName", archive.packageName)
+                .put("expectedPackageName", archive.packageName)
+                .put("versionCode", archive.getLongVersionCode())
+                .put("submittedAt", System.currentTimeMillis())
+                .put("status", "submitted")
+                .put("updatedAt", System.currentTimeMillis());
+        // Persist before commit: replacing this very app can terminate the process.
+        write(metadataFile(context, uploadId), metadata);
+        write(latestFile(context), metadata);
         Intent result = new Intent(context, InstallResultReceiver.class)
                 .setAction(RESULT_ACTION)
                 .putExtra("uploadId", uploadId);
@@ -156,11 +179,12 @@ final class ApkInstaller {
         try (PackageInstaller.Session session = context.getPackageManager()
                 .getPackageInstaller().openSession(sessionId)) {
             session.commit(pending.getIntentSender());
+        } catch (Exception error) {
+            metadata.put("status", "failed").put("message", "Commit failed: " + error.getClass().getSimpleName());
+            write(metadataFile(context, uploadId), metadata);
+            write(latestFile(context), metadata);
+            throw error;
         }
-        metadata.put("status", "submitted")
-                .put("updatedAt", System.currentTimeMillis());
-        write(metadataFile(context, uploadId), metadata);
-        write(latestFile(context), metadata);
         return uploadStatus(metadata).put("submitted", true);
     }
 
@@ -170,6 +194,10 @@ final class ApkInstaller {
             value = read(latestFile(context));
         } else {
             value = read(metadataFile(context, normalizeId(id)));
+        }
+        if (value != null && ("submitted".equals(value.optString("status"))
+                || "pending-user-action".equals(value.optString("status")))) {
+            reconcileInstalled(context, value);
         }
         return value == null
                 ? new JSONObject().put("status", "none")
@@ -200,6 +228,28 @@ final class ApkInstaller {
 
     static boolean canRequestPackageInstalls(Context context) {
         return context.getPackageManager().canRequestPackageInstalls();
+    }
+
+    private static void reconcileInstalled(Context context, JSONObject value) {
+        try {
+            String packageName = value.optString("expectedPackageName", value.optString("packageName"));
+            if (packageName.isBlank() || !value.has("submittedAt") || !value.has("versionCode")) return;
+            PackageInfo installed = context.getPackageManager().getPackageInfo(packageName, 0);
+            if (installed.getLongVersionCode() != value.getLong("versionCode")
+                    || installed.lastUpdateTime < value.getLong("submittedAt")) return;
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (InputStream input = new java.io.FileInputStream(installed.applicationInfo.sourceDir)) {
+                byte[] buffer = new byte[1024 * 1024];
+                int count;
+                while ((count = input.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count);
+            }
+            if (!value.getString("sha256").equals(hex(digest.digest()))) return;
+            value.put("status", "success").put("statusCode", PackageInstaller.STATUS_SUCCESS)
+                    .put("message", "Installed APK and update time verified after replacement")
+                    .put("updatedAt", System.currentTimeMillis());
+            write(metadataFile(context, value.getString("uploadId")), value);
+            write(latestFile(context), value);
+        } catch (Exception ignored) { /* Keep the last authoritative installer result. */ }
     }
 
     private static JSONObject requireMetadata(Context context, String uploadId) throws Exception {
