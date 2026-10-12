@@ -39,7 +39,11 @@ public final class ClickFallbackProbeInstrumentation extends Instrumentation {
       if(action==AccessibilityNodeInfo.ACTION_CLICK)return false;return super.performAccessibilityAction(action,args);
      }
     };
-    button.setAllCaps(false);button.setText("Click fallback probe");button.setOnClickListener(v->clicks.incrementAndGet());box.addView(button,new LinearLayout.LayoutParams(-1,150));activity.setContentView(box);
+    button.setAllCaps(false);button.setText("Click fallback probe");button.setOnClickListener(v->clicks.incrementAndGet());box.addView(button,new LinearLayout.LayoutParams(-1,150));
+    android.widget.EditText privateInput=new android.widget.EditText(activity){
+     @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setViewIdResourceName("pay_test_cardPassword-suppressTextInput");}
+    };
+    privateInput.setText("12");box.addView(privateInput,new LinearLayout.LayoutParams(-1,150));activity.setContentView(box);
    });
    ControlAccessibilityService service=null;long deadline=SystemClock.elapsedRealtime()+10000;
    while(SystemClock.elapsedRealtime()<deadline){service=ControlAccessibilityService.getInstance();try{if(service!=null&&service.snapshot().toString().contains("Click fallback probe"))break;}catch(IllegalStateException transientRoot){}SystemClock.sleep(100);}
@@ -48,7 +52,14 @@ public final class ClickFallbackProbeInstrumentation extends Instrumentation {
     .put("root",new JSONObject().put("contentDescription","test-order"))
     .put("nodes",new JSONArray().put(new JSONObject().put("text","KRW 99,000")));
    JSONObject selector=new JSONObject().put("text","Click fallback probe").put("expectedPackage","com.codex.remotecompanion").put("guard",guard);
-   result.putString("snapshot_before",service.snapshot().toString());
+   JSONObject privacySnapshot=service.snapshot();boolean masked=false;
+   JSONArray all=privacySnapshot.getJSONArray("nodes");
+   for(int i=0;i<all.length();i++) {JSONObject n=all.getJSONObject(i);if("pay_test_cardPassword-suppressTextInput".equals(n.optString("viewId"))) {
+    masked=n.optBoolean("redacted")&&n.optBoolean("hasValue")&&n.isNull("text")&&n.isNull("contentDescription");
+   }}
+   if(!masked)throw new AssertionError("Payment PIN leaked into semantic snapshot");
+   result.putBoolean("payment_input_redacted",masked);
+   result.putString("snapshot_before",privacySnapshot.toString());
    boolean performed=service.click(selector);
    SystemClock.sleep(500);
    result.putBoolean("performed",performed);result.putInt("effects_observed",clicks.get());

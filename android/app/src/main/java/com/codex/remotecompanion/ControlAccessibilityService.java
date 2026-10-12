@@ -294,8 +294,17 @@ public final class ControlAccessibilityService extends AccessibilityService {
         item.put("packageName", text(node.getPackageName()));
         item.put("className", text(node.getClassName()));
         item.put("viewId", node.getViewIdResourceName());
-        item.put("text", node.isPassword() ? JSONObject.NULL : text(node.getText()));
-        item.put("contentDescription", node.isPassword() ? JSONObject.NULL : text(node.getContentDescription()));
+        // Some payment WebViews mark PIN/expiry/birthday fields as ordinary
+        // EditTexts. Do not send their entered values to relay caches or tools.
+        String inputId = text(node.getViewIdResourceName()).toLowerCase(Locale.ROOT);
+        boolean paymentPrivate = node.isEditable() && (inputId.contains("cardpassword")
+                || inputId.contains("cvv") || inputId.contains("cvc")
+                || (inputId.startsWith("pay_test_") && (inputId.contains("birthday") || inputId.contains("validity"))));
+        boolean redacted = node.isPassword() || paymentPrivate;
+        item.put("text", redacted ? JSONObject.NULL : text(node.getText()));
+        item.put("contentDescription", redacted ? JSONObject.NULL : text(node.getContentDescription()));
+        item.put("redacted", redacted);
+        if (paymentPrivate) item.put("hasValue", !text(node.getText()).trim().isEmpty());
         item.put("left", bounds.left);
         item.put("top", bounds.top);
         item.put("right", bounds.right);
