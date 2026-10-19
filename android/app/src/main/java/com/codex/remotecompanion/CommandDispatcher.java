@@ -165,7 +165,7 @@ final class CommandDispatcher {
     }
 
     private void assertConnectionReady() {
-        if (!RendezvousService.hasValidatedVpn(context)) throw new SecurityException("Validated VPN is unavailable");
+        if (!RendezvousService.hasValidatedInternet(context)) throw new IllegalStateException("Internet connection is unavailable");
     }
 
     private JSONObject performed(boolean value, String operation) throws Exception {

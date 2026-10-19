@@ -3,8 +3,8 @@
     <string name="accessibility_description">Allows authenticated remote sessions to inspect visible UI and perform explicitly requested gestures.</string>
     <string name="notification_channel">Remote connection</string>
     <string name="notification_title">Remote Companion ready</string>
-    <string name="notification_text">Waiting for an authenticated relay session through the active VPN</string>
-    <string name="description">Authenticated physical-device testing through a private PC relay. A validated Android VPN must be active before the app opens a connection.</string>
+    <string name="notification_text">Waiting for an authenticated relay session</string>
+    <string name="description">Authenticated physical-device testing through a private PC relay. Connect over Wi-Fi, mobile data, or an existing VPN.</string>
     <string name="relay_host_hint">Relay DNS host</string>
     <string name="relay_port_hint">TLS relay port</string>
     <string name="save_and_connect">Save and connect</string>

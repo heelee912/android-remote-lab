@@ -27,6 +27,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.FileReader;
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -89,15 +90,8 @@ public final class RendezvousService extends Service {
                 .put("auditTail", readAuditTail(context, 80));
     }
 
-    static boolean hasValidatedVpn(Context context) {
-        ConnectivityManager connectivity = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
-        Network active = connectivity.getActiveNetwork();
-        if (active == null) return false;
-        NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(active);
-        return capabilities != null
-                && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    static boolean hasValidatedInternet(Context context) {
+        return validatedInternetNetwork(context) != null;
     }
 
     @Override
@@ -153,13 +147,13 @@ public final class RendezvousService extends Service {
                     sleep(5_000L);
                     continue;
                 }
-                Network vpnNetwork = validatedVpnNetwork();
-                if (vpnNetwork == null) {
-                    setStatus("Waiting for validated VPN");
+                Network relayNetwork = validatedInternetNetwork(this);
+                if (relayNetwork == null) {
+                    setStatus("Waiting for internet connection");
                     sleep(5_000L);
                     continue;
                 }
-                runSession(vpnNetwork);
+                runSession(relayNetwork);
                 delayMillis = 5_000L;
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
@@ -177,12 +171,12 @@ public final class RendezvousService extends Service {
         }
     }
 
-    private void runSession(Network vpnNetwork) throws Exception {
+    private void runSession(Network relayNetwork) throws Exception {
         String relayHost = RelayPreferences.host(this);
         int relayPort = RelayPreferences.port(this);
         KeyPair keyPair = DeviceIdentity.getOrCreate();
         String deviceId = DeviceIdentity.deviceId(keyPair.getPublic());
-        try (Socket routedSocket = connectRoutedSocket(vpnNetwork, relayHost, relayPort)) {
+        try (Socket routedSocket = connectRoutedSocket(relayNetwork, relayHost, relayPort)) {
             SSLSocketFactory tlsFactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
             try (SSLSocket socket = (SSLSocket) tlsFactory.createSocket(routedSocket, relayHost, relayPort, true)) {
             SSLParameters tlsParameters = socket.getSSLParameters();
@@ -230,9 +224,9 @@ public final class RendezvousService extends Service {
             long lastSequence = 0L;
             CommandDispatcher dispatcher = new CommandDispatcher(this, displayLease);
             while (running.get()) {
-                Network currentVpn = validatedVpnNetwork();
-                if (currentVpn == null || !currentVpn.equals(vpnNetwork)) {
-                    throw new SecurityException("Validated VPN changed or disconnected");
+                Network currentNetwork = validatedInternetNetwork(this);
+                if (currentNetwork == null || !currentNetwork.equals(relayNetwork)) {
+                    throw new IOException("Internet network changed or disconnected");
                 }
                 JSONObject frame = Protocol.read(input);
                 String type = frame.optString("type");
@@ -290,14 +284,14 @@ public final class RendezvousService extends Service {
         }
     }
 
-    private Socket connectRoutedSocket(Network vpnNetwork, String relayHost, int relayPort) throws Exception {
-        InetAddress[] addresses = vpnNetwork.getAllByName(relayHost);
+    private Socket connectRoutedSocket(Network relayNetwork, String relayHost, int relayPort) throws Exception {
+        InetAddress[] addresses = relayNetwork.getAllByName(relayHost);
         Throwable lastFailure = null;
         for (int familyPass = 0; familyPass < 2; familyPass++) {
             for (InetAddress address : addresses) {
                 boolean isIpv4 = address instanceof Inet4Address;
                 if ((familyPass == 0) != isIpv4) continue;
-                Socket socket = vpnNetwork.getSocketFactory().createSocket();
+                Socket socket = relayNetwork.getSocketFactory().createSocket();
                 try {
                     socket.connect(new InetSocketAddress(address, relayPort), 15_000);
                     return socket;
@@ -314,15 +308,14 @@ public final class RendezvousService extends Service {
         throw new IllegalStateException("No relay address was reachable", lastFailure);
     }
 
-    private Network validatedVpnNetwork() {
-        ConnectivityManager connectivity = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+    private static Network validatedInternetNetwork(Context context) {
+        ConnectivityManager connectivity = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
         Network active = connectivity.getActiveNetwork();
         if (active == null) return null;
         NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(active);
-        boolean ready = capabilities != null
-                && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        boolean ready = capabilities != null && RelayNetworkPolicy.canConnect(
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED));
         return ready ? active : null;
     }
 
