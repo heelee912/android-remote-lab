@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 final class AdbTunnel implements AutoCloseable {
     private final Context context;
     private final Map<String, SocketChannel> sockets = new HashMap<>();
-    private static final int CHUNK_BYTES = 48 * 1024;
+    private static final int CHUNK_BYTES = 512 * 1024;
     private final NsdManager discovery;
     private final ArrayDeque<NsdServiceInfo> pendingServices = new ArrayDeque<>();
     private volatile int discoveredPort;
@@ -123,6 +123,7 @@ final class AdbTunnel implements AutoCloseable {
         int tcpPort = propertyPort("service.adb.tcp.port");
         if (listening(tcpPort > 0 ? tcpPort : 5555)) {
             return new JSONObject().put("supported", true).put("tlsPort", 0)
+                    .put("chunkBytes", CHUNK_BYTES)
                     .put("port", tcpPort > 0 ? tcpPort : 5555).put("listenerType", "tcp")
                     .put("canRepair", canRepair).put("ready", true);
         }
@@ -137,6 +138,7 @@ final class AdbTunnel implements AutoCloseable {
             }
         }
         return new JSONObject().put("supported", true).put("tlsPort", port)
+                .put("chunkBytes", CHUNK_BYTES)
                 .put("port", port).put("listenerType", "tls")
                 .put("canRepair", canRepair).put("ready", port > 0);
     }
@@ -151,6 +153,8 @@ final class AdbTunnel implements AutoCloseable {
                 SocketChannel channel = SocketChannel.open();
                 Socket socket = channel.socket();
                 try {
+                    socket.setSendBufferSize(2 * 1024 * 1024);
+                    socket.setReceiveBufferSize(2 * 1024 * 1024);
                     socket.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 3000);
                     socket.setTcpNoDelay(true);
                     channel.configureBlocking(false);
