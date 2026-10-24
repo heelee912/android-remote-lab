@@ -141,12 +141,9 @@ public final class RendezvousService extends Service {
                     sleep(5_000L);
                     continue;
                 }
-                UserManager users = (UserManager) getSystemService(USER_SERVICE);
-                if (users == null || !users.isUserUnlocked()) {
-                    setStatus("Waiting for first secure unlock");
-                    sleep(5_000L);
-                    continue;
-                }
+                // Endpoint preferences, audit state and the enrollment key are
+                // available during direct boot. Background ADB can reconnect
+                // independently of user-unlocked app storage and UI readiness.
                 Network relayNetwork = validatedInternetNetwork(this);
                 if (relayNetwork == null) {
                     setStatus("Waiting for internet connection");
