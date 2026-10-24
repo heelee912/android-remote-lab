@@ -4,11 +4,15 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.provider.Settings;
 import android.util.Base64;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import org.json.JSONObject;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.net.NetworkInterface;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -19,8 +23,51 @@ final class AdbTunnel implements AutoCloseable {
     private final Context context;
     private final Map<String, Socket> sockets = new HashMap<>();
     private static final int CHUNK_BYTES = 48 * 1024;
+    private final NsdManager discovery;
+    private volatile int discoveredPort;
+    private volatile String discoveredService;
+    private volatile boolean resolving;
+    private final NsdManager.DiscoveryListener discoveryListener = new NsdManager.DiscoveryListener() {
+        public void onDiscoveryStarted(String type) { }
+        public void onDiscoveryStopped(String type) { }
+        public void onStartDiscoveryFailed(String type, int error) { }
+        public void onStopDiscoveryFailed(String type, int error) { }
+        public void onServiceLost(NsdServiceInfo service) {
+            if (service.getServiceName().equals(discoveredService)) discoveredPort = 0;
+        }
+        public void onServiceFound(NsdServiceInfo service) {
+            if (resolving) return;
+            resolving = true;
+            discovery.resolveService(service, new NsdManager.ResolveListener() {
+                public void onResolveFailed(NsdServiceInfo value, int error) { resolving = false; }
+                public void onServiceResolved(NsdServiceInfo value) {
+                    resolving = false;
+                    try {
+                        InetAddress host = value.getHost();
+                        if (host == null) return;
+                        for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                            if (Collections.list(network.getInetAddresses()).contains(host)) {
+                                discoveredPort = value.getPort();
+                                discoveredService = value.getServiceName();
+                                return;
+                            }
+                        }
+                    } catch (Exception ignored) { }
+                }
+            });
+        }
+    };
 
-    AdbTunnel(Context context) { this.context = context; }
+    AdbTunnel(Context context) {
+        this.context = context;
+        discovery = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
+        discovery.discoverServices("_adb-tls-connect._tcp.", NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+    }
+
+    private int listenerPort() throws Exception {
+        int property = propertyPort("service.adb.tls.port");
+        return property > 0 ? property : discoveredPort;
+    }
 
     private static int propertyPort(String property) throws Exception {
         Process process = new ProcessBuilder("/system/bin/getprop", property).start();
@@ -37,12 +84,12 @@ final class AdbTunnel implements AutoCloseable {
 
     JSONObject status(boolean repair) throws Exception {
         boolean canRepair = context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") == PackageManager.PERMISSION_GRANTED;
-        int port = propertyPort("service.adb.tls.port");
+        int port = listenerPort();
         if (repair && port == 0 && canRepair) {
             Settings.Global.putInt(context.getContentResolver(), "adb_wifi_enabled", 1);
             for (int attempt = 0; attempt < 10 && port == 0; attempt++) {
                 Thread.sleep(100L);
-                port = propertyPort("service.adb.tls.port");
+                port = listenerPort();
             }
         }
         return new JSONObject().put("supported", true).put("tlsPort", port)
@@ -102,6 +149,7 @@ final class AdbTunnel implements AutoCloseable {
     }
 
     public void close() {
+        try { discovery.stopServiceDiscovery(discoveryListener); } catch (Exception ignored) { }
         for (Socket socket : sockets.values()) try { socket.close(); } catch (Exception ignored) { }
         sockets.clear();
     }
