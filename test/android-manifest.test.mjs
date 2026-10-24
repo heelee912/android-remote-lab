@@ -43,3 +43,49 @@ public final class RelayNetworkPolicyProbe {
       { windowsHide: true, timeout: 15000 });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('ADB recovery restarts stale enabled listeners and keeps TCP alive across Wi-Fi loss', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'arlab-adb-recovery-'));
+  const binary = name => process.env.JAVA_HOME
+    ? path.join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? `${name}.exe` : name) : name;
+  try {
+    const harness = path.join(directory, 'AdbListenerRecoveryProbe.java');
+    writeFileSync(harness, `package com.codex.remotecompanion;
+public final class AdbListenerRecoveryProbe {
+  static final class Phone implements AdbListenerRecovery.Device {
+    boolean adb, wireless = true, cycled, failWrite;
+    int port, readyAfter = 1800, wirelessWrites;
+    long elapsed;
+    public int listeningPort() { return port > 0 ? port : cycled && wireless && elapsed >= readyAfter ? 5555 : 0; }
+    public boolean adbEnabled() { return adb; }
+    public boolean wirelessEnabled() { return wireless; }
+    public void setAdbEnabled(boolean value) { if (failWrite) throw new IllegalStateException("setting rejected"); adb = value; }
+    public void setWirelessEnabled(boolean value) { wirelessWrites++; if (!value) cycled = true; wireless = value; }
+    public void await(long millis) { elapsed += millis; }
+  }
+  public static void main(String[] args) throws Exception {
+    Phone stale = new Phone();
+    if (AdbListenerRecovery.recover(stale, true) != 5555 || !stale.adb || !stale.cycled || stale.wirelessWrites != 2)
+      throw new AssertionError("Enabled-but-dead listener requires a real off/on transition and ADB service retention");
+    Phone healthy = new Phone(); healthy.port = 5555;
+    if (AdbListenerRecovery.recover(healthy, true) != 5555 || !healthy.adb || healthy.wirelessWrites != 0 || healthy.elapsed != 0)
+      throw new AssertionError("Working TCP must be retained without restarting wireless debugging");
+    Phone denied = new Phone();
+    if (AdbListenerRecovery.recover(denied, false) != 0 || denied.adb || denied.wirelessWrites != 0)
+      throw new AssertionError("An absent Android grant must produce no settings writes");
+    Phone late = new Phone(); late.readyAfter = 4000;
+    if (AdbListenerRecovery.recover(late, true) != 5555) throw new AssertionError("Listener startup can exceed one second");
+    Phone missing = new Phone(); missing.readyAfter = Integer.MAX_VALUE;
+    if (AdbListenerRecovery.recover(missing, true) != 0 || missing.elapsed > 5000)
+      throw new AssertionError("Unavailable listener must remain a bounded failure");
+    Phone failed = new Phone(); failed.failWrite = true;
+    try { AdbListenerRecovery.recover(failed, true); throw new AssertionError("Settings failure was hidden"); }
+    catch (IllegalStateException expected) { }
+  }
+}`);
+    const source = fileURLToPath(new URL('../android/app/src/main/java/com/codex/remotecompanion/AdbListenerRecovery.java', import.meta.url));
+    execFileSync(binary('javac'), ['-d', directory, source, harness], { windowsHide: true, timeout: 15000 });
+    execFileSync(binary('java'), ['-cp', directory, 'com.codex.remotecompanion.AdbListenerRecoveryProbe'],
+      { windowsHide: true, timeout: 15000 });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

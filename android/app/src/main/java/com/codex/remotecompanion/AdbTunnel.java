@@ -115,31 +115,45 @@ final class AdbTunnel implements AutoCloseable {
         catch (NumberFormatException error) { return 0; }
     }
 
+    private int reachablePort() throws Exception {
+        int tcpPort = propertyPort("service.adb.tcp.port");
+        if (listening(tcpPort > 0 ? tcpPort : 5555)) return tcpPort > 0 ? tcpPort : 5555;
+        int tlsPort = listenerPort();
+        return listening(tlsPort) ? tlsPort : 0;
+    }
+
+    private boolean enabled(String setting) {
+        return Settings.Global.getInt(context.getContentResolver(), setting, 0) == 1;
+    }
+
+    private void setEnabled(String setting, boolean value) {
+        if (!Settings.Global.putInt(context.getContentResolver(), setting, value ? 1 : 0)) {
+            throw new IllegalStateException("Android did not apply " + setting);
+        }
+    }
+
     JSONObject status(boolean repair) throws Exception {
         boolean canRepair = context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") == PackageManager.PERMISSION_GRANTED;
-        // `adb tcpip 5555` is an explicit one-time provisioning operation over
-        // an authenticated ADB transport. This listener survives Wi-Fi changes;
-        // it still requires the PC's authorized ADB key inside the outer TLS.
+        boolean adbBefore = enabled("adb_enabled");
+        boolean wirelessBefore = enabled("adb_wifi_enabled");
+        int initialPort = reachablePort();
+        int port = repair ? AdbListenerRecovery.recover(new AdbListenerRecovery.Device() {
+            public int listeningPort() throws Exception { return reachablePort(); }
+            public boolean adbEnabled() { return enabled("adb_enabled"); }
+            public boolean wirelessEnabled() { return enabled("adb_wifi_enabled"); }
+            public void setAdbEnabled(boolean value) { setEnabled("adb_enabled", value); }
+            public void setWirelessEnabled(boolean value) { setEnabled("adb_wifi_enabled", value); }
+            public void await(long milliseconds) throws InterruptedException { Thread.sleep(milliseconds); }
+        }, canRepair) : initialPort;
         int tcpPort = propertyPort("service.adb.tcp.port");
-        if (listening(tcpPort > 0 ? tcpPort : 5555)) {
-            return new JSONObject().put("supported", true).put("tlsPort", 0)
-                    .put("chunkBytes", CHUNK_BYTES)
-                    .put("port", tcpPort > 0 ? tcpPort : 5555).put("listenerType", "tcp")
-                    .put("canRepair", canRepair).put("ready", true);
-        }
-        int port = listenerPort();
-        if (!listening(port)) port = 0;
-        if (repair && port == 0 && canRepair) {
-            Settings.Global.putInt(context.getContentResolver(), "adb_wifi_enabled", 1);
-            for (int attempt = 0; attempt < 10 && port == 0; attempt++) {
-                Thread.sleep(100L);
-                int candidate = listenerPort();
-                port = listening(candidate) ? candidate : 0;
-            }
-        }
-        return new JSONObject().put("supported", true).put("tlsPort", port)
+        boolean tcp = port > 0 && port == (tcpPort > 0 ? tcpPort : 5555);
+        return new JSONObject().put("supported", true).put("tlsPort", tcp ? 0 : port)
                 .put("chunkBytes", CHUNK_BYTES)
-                .put("port", port).put("listenerType", "tls")
+                .put("port", port).put("listenerType", tcp ? "tcp" : "tls")
+                .put("adbEnabled", enabled("adb_enabled"))
+                .put("wirelessEnabled", enabled("adb_wifi_enabled"))
+                .put("repairAttempted", repair && canRepair && (!adbBefore || initialPort == 0))
+                .put("wirelessRestarted", repair && canRepair && initialPort == 0 && wirelessBefore)
                 .put("canRepair", canRepair).put("ready", port > 0);
     }
 
