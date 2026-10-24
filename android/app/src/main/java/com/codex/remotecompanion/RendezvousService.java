@@ -222,6 +222,7 @@ public final class RendezvousService extends Service {
             sessionAuthenticated = true;
             appendLog(this, "authenticated session connected for " + deviceId);
             long lastSequence = 0L;
+            try (AdbTunnel adbTunnel = new AdbTunnel(this)) {
             CommandDispatcher dispatcher = new CommandDispatcher(this, displayLease);
             while (running.get()) {
                 Network currentNetwork = validatedInternetNetwork(this);
@@ -259,14 +260,15 @@ public final class RendezvousService extends Service {
                 JSONObject args = frame.optJSONObject("args");
                 if (args == null) args = new JSONObject();
                 try {
-                    JSONObject result = dispatcher.dispatch(command, args);
+                    JSONObject result = command.startsWith("adb_tunnel_")
+                            ? adbTunnel.dispatch(command, args) : dispatcher.dispatch(command, args);
                     Protocol.write(output, new JSONObject()
                             .put("type", "response")
                             .put("requestId", requestId)
                             .put("seq", sequence)
                             .put("ok", true)
                             .put("result", result));
-                    appendLog(this, "command ok: " + command + " request=" + requestId);
+                    if (!command.startsWith("adb_tunnel_")) appendLog(this, "command ok: " + command + " request=" + requestId);
                 } catch (Throwable error) {
                     Protocol.write(output, responseError(
                             requestId,
@@ -276,6 +278,7 @@ public final class RendezvousService extends Service {
                     appendLog(this, "command failed: " + command + " request=" + requestId
                             + " error=" + error.getClass().getSimpleName());
                 }
+            }
             }
             }
         } finally {
