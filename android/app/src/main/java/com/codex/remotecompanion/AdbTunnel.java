@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 final class AdbTunnel implements AutoCloseable {
     private final Context context;
     private final Map<String, SocketChannel> sockets = new HashMap<>();
-    private static final int CHUNK_BYTES = 512 * 1024;
+    private static final int CHUNK_BYTES = 128 * 1024;
     private final NsdManager discovery;
     private final ArrayDeque<NsdServiceInfo> pendingServices = new ArrayDeque<>();
     private volatile int discoveredPort;

@@ -183,6 +183,7 @@ public final class RendezvousService extends Service {
             tlsParameters.setEndpointIdentificationAlgorithm("HTTPS");
             socket.setSSLParameters(tlsParameters);
             socket.setKeepAlive(true);
+            socket.setTcpNoDelay(true);
             socket.setSoTimeout(45_000);
             socket.startHandshake();
             DataInputStream input = new DataInputStream(socket.getInputStream());

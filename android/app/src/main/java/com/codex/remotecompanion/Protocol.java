@@ -7,6 +7,7 @@ import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
 
 final class Protocol {
     static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
@@ -33,8 +34,10 @@ final class Protocol {
         if (payload.length > MAX_FRAME_BYTES) {
             throw new IOException("Frame exceeds limit: " + payload.length);
         }
-        output.writeInt(payload.length);
-        output.write(payload);
+        // Keep the length prefix and body in one TLS write. Separate small
+        // records can wait for TCP acknowledgement on every request/response.
+        byte[] frame = ByteBuffer.allocate(payload.length + 4).putInt(payload.length).put(payload).array();
+        output.write(frame);
         output.flush();
     }
 }
