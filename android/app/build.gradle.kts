@@ -23,8 +23,8 @@ android {
         minSdk = 30
         targetSdk = 35
         testInstrumentationRunner = "com.codex.remotecompanion.WakeProbeInstrumentation"
-        versionCode = 16
-        versionName = "1.2.0"
+        versionCode = 17
+        versionName = "1.2.1"
         buildConfigField("String", "DEFAULT_RELAY_HOST", "\"${defaultRelayHost.replace("\"", "\\\"")}\"")
     }
 
