@@ -4,6 +4,9 @@ import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.wifi.WifiManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -37,6 +40,14 @@ final class MobileAdbRecovery implements AutoCloseable {
     void start() {
         synchronized (lock) {
             if (closed || worker != null || SystemClock.elapsedRealtime() < nextAttemptMillis) return;
+            // The ordinary wireless repair handles an existing Wi-Fi link.
+            // Starting a hotspot there can evict that link on single-radio phones.
+            ConnectivityManager connectivity = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            for (Network network : connectivity.getAllNetworks()) {
+                NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(network);
+                if (capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                        && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return;
+            }
             String permission = Build.VERSION.SDK_INT >= 33
                     ? Manifest.permission.NEARBY_WIFI_DEVICES : Manifest.permission.ACCESS_FINE_LOCATION;
             if (context.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
