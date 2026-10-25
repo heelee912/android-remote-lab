@@ -54,13 +54,14 @@ test('ADB recovery restarts stale enabled listeners and keeps TCP alive across W
 public final class AdbListenerRecoveryProbe {
   static final class Phone implements AdbListenerRecovery.Device {
     boolean adb, wireless = true, cycled, failWrite;
-    int port, readyAfter = 1800, wirelessWrites;
+    int port, readyAfter = 1800, wirelessWrites, probeMillis;
     long elapsed;
-    public int listeningPort() { return port > 0 ? port : cycled && wireless && elapsed >= readyAfter ? 5555 : 0; }
+    public int listeningPort() { elapsed += probeMillis; return port > 0 ? port : cycled && wireless && elapsed >= readyAfter ? 5555 : 0; }
     public boolean adbEnabled() { return adb; }
     public boolean wirelessEnabled() { return wireless; }
     public void setAdbEnabled(boolean value) { if (failWrite) throw new IllegalStateException("setting rejected"); adb = value; }
     public void setWirelessEnabled(boolean value) { wirelessWrites++; if (!value) cycled = true; wireless = value; }
+    public long monotonicMillis() { return elapsed; }
     public void await(long millis) { elapsed += millis; }
   }
   public static void main(String[] args) throws Exception {
@@ -78,6 +79,9 @@ public final class AdbListenerRecoveryProbe {
     Phone missing = new Phone(); missing.readyAfter = Integer.MAX_VALUE;
     if (AdbListenerRecovery.recover(missing, true) != 0 || missing.elapsed > 5000)
       throw new AssertionError("Unavailable listener must remain a bounded failure");
+    Phone slow = new Phone(); slow.readyAfter = Integer.MAX_VALUE; slow.probeMillis = 500;
+    if (AdbListenerRecovery.recover(slow, true) != 0 || slow.elapsed > 6000)
+      throw new AssertionError("The deadline must include time spent probing, not only explicit sleeps");
     Phone failed = new Phone(); failed.failWrite = true;
     try { AdbListenerRecovery.recover(failed, true); throw new AssertionError("Settings failure was hidden"); }
     catch (IllegalStateException expected) { }

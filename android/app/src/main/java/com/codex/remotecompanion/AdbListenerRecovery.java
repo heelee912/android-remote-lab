@@ -8,6 +8,7 @@ final class AdbListenerRecovery {
         boolean wirelessEnabled();
         void setAdbEnabled(boolean enabled);
         void setWirelessEnabled(boolean enabled);
+        long monotonicMillis();
         void await(long milliseconds) throws InterruptedException;
     }
 
@@ -25,7 +26,8 @@ final class AdbListenerRecovery {
             device.await(250L);
         }
         device.setWirelessEnabled(true);
-        for (int attempt = 0; attempt < 45; attempt++) {
+        long deadline = device.monotonicMillis() + 4500L;
+        while (device.monotonicMillis() < deadline) {
             device.await(100L);
             port = device.listeningPort();
             if (port > 0) return port;

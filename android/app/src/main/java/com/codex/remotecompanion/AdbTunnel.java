@@ -3,6 +3,7 @@ package com.codex.remotecompanion;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.provider.Settings;
+import android.os.SystemClock;
 import android.util.Base64;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
@@ -31,6 +32,9 @@ final class AdbTunnel implements AutoCloseable {
     private volatile String discoveredService;
     private boolean resolving;
     private volatile boolean closed;
+    private long propertiesReadAt = Long.MIN_VALUE;
+    private int cachedTcpPort;
+    private int cachedTlsPort;
     private final NsdManager.DiscoveryListener discoveryListener = new NsdManager.DiscoveryListener() {
         public void onDiscoveryStarted(String type) { }
         public void onDiscoveryStopped(String type) { }
@@ -90,8 +94,7 @@ final class AdbTunnel implements AutoCloseable {
     }
 
     private int listenerPort() throws Exception {
-        int property = propertyPort("service.adb.tls.port");
-        return property > 0 ? property : discoveredPort;
+        return cachedTlsPort > 0 ? cachedTlsPort : discoveredPort;
     }
 
     private static boolean listening(int port) {
@@ -104,7 +107,7 @@ final class AdbTunnel implements AutoCloseable {
 
     private static int propertyPort(String property) throws Exception {
         Process process = new ProcessBuilder("/system/bin/getprop", property).start();
-        if (!process.waitFor(2, TimeUnit.SECONDS)) {
+        if (!process.waitFor(1, TimeUnit.SECONDS)) {
             process.destroyForcibly();
             throw new IllegalStateException("ADB port discovery timed out");
         }
@@ -116,8 +119,15 @@ final class AdbTunnel implements AutoCloseable {
     }
 
     private int reachablePort() throws Exception {
-        int tcpPort = propertyPort("service.adb.tcp.port");
-        if (listening(tcpPort > 0 ? tcpPort : 5555)) return tcpPort > 0 ? tcpPort : 5555;
+        long now = SystemClock.elapsedRealtime();
+        // Socket polling must not spawn two getprop processes on every 100 ms
+        // iteration. A delayed property query otherwise stalls the command reader.
+        if (propertiesReadAt == Long.MIN_VALUE || now - propertiesReadAt >= 1000L) {
+            cachedTcpPort = propertyPort("service.adb.tcp.port");
+            cachedTlsPort = propertyPort("service.adb.tls.port");
+            propertiesReadAt = SystemClock.elapsedRealtime();
+        }
+        if (listening(cachedTcpPort > 0 ? cachedTcpPort : 5555)) return cachedTcpPort > 0 ? cachedTcpPort : 5555;
         int tlsPort = listenerPort();
         return listening(tlsPort) ? tlsPort : 0;
     }
@@ -143,10 +153,10 @@ final class AdbTunnel implements AutoCloseable {
             public boolean wirelessEnabled() { return enabled("adb_wifi_enabled"); }
             public void setAdbEnabled(boolean value) { setEnabled("adb_enabled", value); }
             public void setWirelessEnabled(boolean value) { setEnabled("adb_wifi_enabled", value); }
+            public long monotonicMillis() { return SystemClock.elapsedRealtime(); }
             public void await(long milliseconds) throws InterruptedException { Thread.sleep(milliseconds); }
         }, canRepair) : initialPort;
-        int tcpPort = propertyPort("service.adb.tcp.port");
-        boolean tcp = port > 0 && port == (tcpPort > 0 ? tcpPort : 5555);
+        boolean tcp = port > 0 && port == (cachedTcpPort > 0 ? cachedTcpPort : 5555);
         return new JSONObject().put("supported", true).put("tlsPort", tcp ? 0 : port)
                 .put("chunkBytes", CHUNK_BYTES)
                 .put("port", port).put("listenerType", tcp ? "tcp" : "tls")
@@ -162,7 +172,9 @@ final class AdbTunnel implements AutoCloseable {
             case "adb_tunnel_status": return status(args.optBoolean("repair", false));
             case "adb_tunnel_open": {
                 if (sockets.size() >= 4) throw new IllegalStateException("ADB tunnel capacity reached");
-                int port = status(true).getInt("port");
+                // Tunnel creation already repairs the listener. Native SDK
+                // reconnects must fail promptly rather than queue repair loops.
+                int port = status(false).getInt("port");
                 if (port == 0) throw new IllegalStateException("ADB wireless listener is not running");
                 SocketChannel channel = SocketChannel.open();
                 Socket socket = channel.socket();
