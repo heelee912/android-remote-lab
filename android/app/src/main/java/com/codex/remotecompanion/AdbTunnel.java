@@ -183,6 +183,8 @@ final class AdbTunnel implements AutoCloseable {
                 .put("wirelessEnabled", enabled("adb_wifi_enabled"))
                 .put("repairAttempted", repair && canRepair && (!adbBefore || initialPort == 0))
                 .put("wirelessRestarted", repair && canRepair && initialPort == 0 && wirelessBefore)
+                .put("mobileRecoveryRunning", mobileRecovery.isRunning())
+                .put("mobileRecoveryError", mobileRecovery.lastError() == null ? JSONObject.NULL : mobileRecovery.lastError())
                 .put("canRepair", canRepair).put("ready", port > 0);
     }
 

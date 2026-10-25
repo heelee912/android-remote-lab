@@ -22,6 +22,7 @@ final class MobileAdbRecovery implements AutoCloseable {
     private final Runnable interfaceReady;
     private final Object lock = new Object();
     private volatile boolean closed;
+    private volatile String lastError;
     private Thread worker;
     private WifiManager.LocalOnlyHotspotReservation hotspot;
     private Object hotspotRequest;
@@ -39,10 +40,12 @@ final class MobileAdbRecovery implements AutoCloseable {
             String permission = Build.VERSION.SDK_INT >= 33
                     ? Manifest.permission.NEARBY_WIFI_DEVICES : Manifest.permission.ACCESS_FINE_LOCATION;
             if (context.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+                lastError = "mobile ADB recovery requires " + permission;
                 audit.accept("mobile ADB recovery requires " + permission);
                 nextAttemptMillis = SystemClock.elapsedRealtime() + 30_000L;
                 return;
             }
+            lastError = null;
             worker = new Thread(this::recover, "arlab-mobile-adb-recovery");
             worker.setDaemon(true);
             worker.start();
@@ -59,6 +62,7 @@ final class MobileAdbRecovery implements AutoCloseable {
             while (!closed && !Thread.currentThread().isInterrupted()
                     && SystemClock.elapsedRealtime() < deadline) {
                 if (tcpListening()) {
+                    lastError = null;
                     audit.accept("mobile ADB recovery: TCP listener verified");
                     return;
                 }
@@ -68,10 +72,14 @@ final class MobileAdbRecovery implements AutoCloseable {
                 }
                 Thread.sleep(20L);
             }
-            if (!closed) audit.accept("mobile ADB recovery: bootstrap deadline reached");
+            if (!closed) {
+                lastError = "mobile ADB bootstrap deadline reached";
+                audit.accept(lastError);
+            }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
         } catch (Exception error) {
+            lastError = error.getClass().getSimpleName() + ": " + error.getMessage();
             audit.accept("mobile ADB recovery: " + error.getClass().getSimpleName()
                     + ": " + error.getMessage());
         } finally {
@@ -83,6 +91,9 @@ final class MobileAdbRecovery implements AutoCloseable {
         }
     }
 
+    boolean isRunning() { synchronized (lock) { return worker != null; } }
+    String lastError() { return lastError; }
+
     private void requestHotspot() throws Exception {
         WifiManager wifi = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         CountDownLatch replied = new CountDownLatch(1);
@@ -93,11 +104,15 @@ final class MobileAdbRecovery implements AutoCloseable {
             @Override public void onStarted(WifiManager.LocalOnlyHotspotReservation reservation) {
                 synchronized (lock) {
                     if (closed || hotspotRequest != request) reservation.close();
-                    else hotspot = reservation;
+                    else {
+                        hotspot = reservation;
+                        audit.accept("mobile ADB recovery: temporary local hotspot started");
+                    }
                 }
                 replied.countDown();
             }
             @Override public void onFailed(int reason) {
+                lastError = "local hotspot refused " + reason;
                 audit.accept("mobile ADB recovery: local hotspot refused " + reason);
                 replied.countDown();
             }
@@ -126,7 +141,10 @@ final class MobileAdbRecovery implements AutoCloseable {
             hotspot = null;
         }
         if (reservation != null) {
-            try { reservation.close(); }
+            try {
+                reservation.close();
+                audit.accept("mobile ADB recovery: temporary local hotspot released");
+            }
             catch (RuntimeException error) {
                 audit.accept("mobile ADB recovery: hotspot close failed " + error.getClass().getSimpleName());
             }
