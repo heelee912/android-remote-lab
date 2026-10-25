@@ -220,7 +220,7 @@ public final class RendezvousService extends Service {
             sessionAuthenticated = true;
             appendLog(this, "authenticated session connected for " + deviceId);
             long lastSequence = 0L;
-            try (AdbTunnel adbTunnel = new AdbTunnel(this)) {
+            try (AdbTunnel adbTunnel = new AdbTunnel(this, message -> appendLog(this, message))) {
             CommandDispatcher dispatcher = new CommandDispatcher(this, displayLease);
             while (running.get()) {
                 Network currentNetwork = validatedInternetNetwork(this);

@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 /** Carries ADB bytes only to this phone's loopback debugging service. */
 final class AdbTunnel implements AutoCloseable {
     private final Context context;
+    private final MobileAdbRecovery mobileRecovery;
     private final Map<String, SocketChannel> sockets = new HashMap<>();
     private static final int CHUNK_BYTES = 128 * 1024;
     private final NsdManager discovery;
@@ -51,6 +52,22 @@ final class AdbTunnel implements AutoCloseable {
             resolveNextService();
         }
     };
+    private NsdManager.DiscoveryListener mobileDiscovery;
+
+    private synchronized void discoverMobileInterface() {
+        if (closed || mobileDiscovery != null) return;
+        // Register after the local interface exists. A discovery registered on
+        // mobile data alone may never query the subsequently created interface.
+        mobileDiscovery = new NsdManager.DiscoveryListener() {
+            public void onDiscoveryStarted(String type) { }
+            public void onDiscoveryStopped(String type) { }
+            public void onStartDiscoveryFailed(String type, int error) { }
+            public void onStopDiscoveryFailed(String type, int error) { }
+            public void onServiceFound(NsdServiceInfo service) { discoveryListener.onServiceFound(service); }
+            public void onServiceLost(NsdServiceInfo service) { discoveryListener.onServiceLost(service); }
+        };
+        discovery.discoverServices("_adb-tls-connect._tcp.", NsdManager.PROTOCOL_DNS_SD, mobileDiscovery);
+    }
 
     private void resolveNextService() {
         NsdServiceInfo service;
@@ -87,8 +104,9 @@ final class AdbTunnel implements AutoCloseable {
         }
     }
 
-    AdbTunnel(Context context) {
+    AdbTunnel(Context context, java.util.function.Consumer<String> audit) {
         this.context = context;
+        mobileRecovery = new MobileAdbRecovery(context, audit, this::discoverMobileInterface);
         discovery = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
         discovery.discoverServices("_adb-tls-connect._tcp.", NsdManager.PROTOCOL_DNS_SD, discoveryListener);
     }
@@ -156,6 +174,7 @@ final class AdbTunnel implements AutoCloseable {
             public long monotonicMillis() { return SystemClock.elapsedRealtime(); }
             public void await(long milliseconds) throws InterruptedException { Thread.sleep(milliseconds); }
         }, canRepair) : initialPort;
+        if (repair && canRepair && port == 0) mobileRecovery.start();
         boolean tcp = port > 0 && port == (cachedTcpPort > 0 ? cachedTcpPort : 5555);
         return new JSONObject().put("supported", true).put("tlsPort", tcp ? 0 : port)
                 .put("chunkBytes", CHUNK_BYTES)
@@ -227,8 +246,12 @@ final class AdbTunnel implements AutoCloseable {
 
     public void close() {
         closed = true;
+        mobileRecovery.close();
         synchronized (pendingServices) { pendingServices.clear(); }
         try { discovery.stopServiceDiscovery(discoveryListener); } catch (Exception ignored) { }
+        if (mobileDiscovery != null) {
+            try { discovery.stopServiceDiscovery(mobileDiscovery); } catch (Exception ignored) { }
+        }
         for (SocketChannel socket : sockets.values()) try { socket.close(); } catch (Exception ignored) { }
         sockets.clear();
     }
