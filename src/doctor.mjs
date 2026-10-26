@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { loadConfig } = require('./config.js');
+const { loadConfig, ownerId } = require('./config.js');
 const { fileURLToPath } = require('node:url');
 
 function run(command, args) {
@@ -26,7 +26,7 @@ function apiStatus(config) {
       port: config.apiPort,
       path: '/status',
       method: 'GET',
-      headers: { 'x-companion-token': token },
+      headers: { 'x-companion-token': token, 'x-companion-owner': ownerId(), ...(process.env.ANDROID_REMOTE_LAB_DEVICE_ID ? { 'x-companion-device': process.env.ANDROID_REMOTE_LAB_DEVICE_ID } : {}) },
       timeout: 3000,
     }, (response) => {
       const chunks = [];
@@ -106,13 +106,36 @@ export function classifyState({ infrastructure, active, minimumCompanionVersionC
     ? active.secureKeyguardLocked === false && active.screenInteractive === true && active.userUnlocked === true
     : active.keyguardLocked === false) && active.accessibilityReady === true;
   const companionVersionCode = Number(active.versionCode);
+  if (active.versionCode == null) return 'CONNECTED_UNVERIFIED';
   if (deviceVerified && (!Number.isSafeInteger(companionVersionCode)
       || companionVersionCode < minimumCompanionVersionCode)) return 'COMPANION_UPDATE_REQUIRED';
   if (!deviceVerified) return 'CONNECTED_UNVERIFIED';
   return 'READY';
 }
 
-export async function doctor({ repair = false } = {}) {
+export function classifyBackgroundState({ infrastructure, active, minimumCompanionVersionCode = 7 }) {
+  if (!infrastructure) return 'INFRASTRUCTURE_UNHEALTHY';
+  if (!active) return 'WAITING_FOR_PHONE';
+  if (active.versionCode == null) return 'CONNECTED_UNVERIFIED';
+  const version = Number(active.versionCode);
+  if (!Number.isSafeInteger(version) || version < minimumCompanionVersionCode) return 'COMPANION_UPDATE_REQUIRED';
+  return 'BACKGROUND_READY';
+}
+
+export async function waitForDeviceReadiness(readStatus, initial, timeoutMs = 30_000) {
+  const deviceId = initial.selectedDeviceId || initial.active?.deviceId;
+  const deadline = Date.now() + timeoutMs;
+  let status = initial;
+  while (deviceId && (!status.active || status.active.versionCode === null) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(1, deadline - Date.now()))));
+    status = await readStatus();
+    if ((status.selectedDeviceId && status.selectedDeviceId !== deviceId)
+        || (status.active && status.active.deviceId !== deviceId)) throw new Error('selected-device-changed');
+  }
+  return status;
+}
+
+export async function doctor({ repair = false, background = false } = {}) {
   let config;
   try { config = loadConfig(); }
   catch (error) {
@@ -134,9 +157,14 @@ export async function doctor({ repair = false } = {}) {
     && processes.launchers === 1
     && processes.relays === 1
     && processes.consoleHosts === 0;
+  // Repair also spans network handoffs and authentication's first readiness pong.
+  // Inspection without --repair remains an immediate snapshot.
+  if (repair && infrastructure) {
+    local = await waitForDeviceReadiness(() => apiStatus(config), local);
+  }
   const beforeWake = classifyState({ infrastructure, active: local.active });
   let wake = null;
-  if (repair && infrastructure && ['SCREEN_OFF', 'KEYGUARD_SHOWING'].includes(beforeWake)) {
+  if (repair && !background && infrastructure && ['SCREEN_OFF', 'KEYGUARD_SHOWING'].includes(beforeWake)) {
     const client = fileURLToPath(new URL('./client.js', import.meta.url));
     const result = run(process.execPath, [client, 'session-start', '60']);
     try { wake = JSON.parse(result.stdout); } catch { wake = { ok: false, error: result.stderr.trim() }; }
@@ -149,13 +177,23 @@ export async function doctor({ repair = false } = {}) {
     }
   }
   const minimumCompanionVersionCode = 7;
-  const state = classifyState({ infrastructure, active: local.active, minimumCompanionVersionCode });
+  const uiState = classifyState({ infrastructure, active: local.active, minimumCompanionVersionCode });
+  const backgroundState = classifyBackgroundState({ infrastructure, active: local.active, minimumCompanionVersionCode });
+  const state = background ? backgroundState : uiState;
   if (wake?.ok && state !== 'READY') {
     run(process.execPath, [fileURLToPath(new URL('./client.js', import.meta.url)), 'session-stop']);
   }
   return {
-    ok: state === 'READY',
+    ok: background ? state === 'BACKGROUND_READY' : state === 'READY',
     state,
+    uiState,
+    backgroundState,
+    mode: background ? 'background' : 'interactive',
+    adbConfigured: Boolean(local.active && config.systemInput?.adbPath
+      && config.systemInput?.devices?.[local.active.deviceId]),
+    adbRoute: Number(local.active?.versionCode) >= 16 ? 'auto' : 'configured-direct',
+    adbRoutes: Number(local.active?.versionCode) >= 16 ? ['configured-direct', 'companion-tunnel'] : ['configured-direct'],
+    adbReadiness: 'not-probed; use arlab device adb-status and an actual ADB command',
     wake,
     endpoint: `${config.relayHost}:${config.publicPort}`,
     task,
@@ -165,12 +203,15 @@ export async function doctor({ repair = false } = {}) {
     selectedDeviceId: local.selectedDeviceId || local.active?.deviceId || null,
     connectedDevices: local.connectedDevices || (local.active ? [local.active] : []),
     controlLease: local.controlLease || null,
+    controlLeases: local.controlLeases || [],
     pendingDevices: local.pendingDevices || [],
     limits: {
       preUnlockControl: false,
+      preUnlockBackgroundConnection: Number(local.active?.versionCode) >= 21,
       unattendedApkInstall: false,
       secureWindowScreenshots: false,
-      wirelessAdbRecovery: false,
+      wirelessAdbRecovery: Number(local.active?.versionCode) >= 16,
+      wirelessAdbRecoveryRequires: 'existing ADB authentication; WRITE_SECURE_SETTINGS for listener repair; nearby-Wi-Fi permission for mobile bootstrap; network availability',
       minimumCompanionVersionCode,
     },
   };

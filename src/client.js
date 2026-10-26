@@ -10,11 +10,12 @@ const config = loadConfig();
 const stateDir = process.env.ANDROID_REMOTE_LAB_STATE_DIR || config.stateDir;
 const apiPort = Number(process.env.ANDROID_REMOTE_LAB_API_PORT || config.apiPort);
 const token = fs.readFileSync(path.join(stateDir, 'local-api-token.txt'), 'utf8').trim();
-const sessionDir = path.join(stateDir, 'sessions');
+const owner = ownerId();
+const sessionDir = path.join(stateDir, 'sessions', `owner-${encodeURIComponent(owner)}`);
 const automaticControlLeaseMillis = 60 * 60_000;
 const minimumControlLeaseRemainingMillis = 5 * 60_000;
-const owner = ownerId();
-let commandDeviceId = null;
+const explicitDeviceId = process.env.ANDROID_REMOTE_LAB_DEVICE_ID || null;
+let commandDeviceId = explicitDeviceId;
 
 function usage(error) {
   if (error) process.stderr.write(`${error}\n`);
@@ -24,6 +25,7 @@ function usage(error) {
     '  companion-cli.js enroll <deviceId>',
     '  companion-cli.js snapshot [session]',
     '  companion-cli.js press <back|home|recents|notifications|quick_settings>',
+    '  companion-cli.js press <dpad_up|dpad_down|dpad_left|dpad_right|dpad_center> <expectedPackage>',
     '  companion-cli.js tap <x> <y>',
     '  companion-cli.js swipe <startX> <startY> <endX> <endY> [durationMs]',
     '  companion-cli.js click <@eN|text=...|viewId=...|desc=...> [session]',
@@ -33,6 +35,8 @@ function usage(error) {
     '  companion-cli.js install <absoluteApkPath>',
     '  companion-cli.js install-status [uploadId]',
     '  companion-cli.js diagnostics',
+    '  companion-cli.js adb-status [--repair]',
+    '  companion-cli.js adb <jsonRequest>',
     '  companion-cli.js session-start [minutes]',
     '  companion-cli.js session-stop',
     '  companion-cli.js lease [milliseconds]',
@@ -52,6 +56,8 @@ function api(method, route, body, requestTimeoutMs = 35_000) {
       method,
       headers: {
         'x-companion-token': token,
+        'x-companion-owner': owner,
+        ...((commandDeviceId || explicitDeviceId) ? { 'x-companion-device': commandDeviceId || explicitDeviceId } : {}),
         ...(encoded ? { 'content-type': 'application/json', 'content-length': encoded.length } : {}),
       },
       timeout: requestTimeoutMs,
@@ -68,7 +74,9 @@ function api(method, route, body, requestTimeoutMs = 35_000) {
             ? rawError
             : rawError?.message || rawError?.code || `API HTTP ${response.statusCode}`;
           const detail = value.owner ? ` (owner=${value.owner}, expiresAt=${value.expiresAt || 'unknown'})` : '';
-          return reject(new Error(`${message}${detail}`));
+          const error = new Error(`${message}${detail}`);
+          error.dispatchState = value.dispatchState;
+          return reject(error);
         }
         resolve(value);
       });
@@ -80,22 +88,54 @@ function api(method, route, body, requestTimeoutMs = 35_000) {
   });
 }
 
-async function ensureControlLease(displayOnly = false) {
-  const status = await api('GET', '/status');
+async function connectedStatus(timeoutMs = 30_000) {
+  let status = await api('GET', '/status');
+  const expectedDeviceId = commandDeviceId || status.selectedDeviceId || status.active?.deviceId;
+  const reconnectDeadline = Date.now() + timeoutMs;
+  while ((!status.active || status.active.versionCode === null) && expectedDeviceId && Date.now() < reconnectDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 250));
+    status = await api('GET', '/status');
+    if (status.selectedDeviceId && status.selectedDeviceId !== expectedDeviceId) throw new Error('selected-device-changed');
+  }
   if (!status.active) throw new Error('device-not-connected');
-  if (commandDeviceId && commandDeviceId !== status.active.deviceId) throw new Error('selected-device-changed');
+  if (status.active.versionCode === null) throw new Error('device-readiness-pending');
+  if (expectedDeviceId && expectedDeviceId !== status.active.deviceId) throw new Error('selected-device-changed');
+  return status;
+}
+
+async function ensureControlLease(displayOnly = false, background = false, timeoutMs = 30_000) {
+  const status = await connectedStatus(timeoutMs);
   commandDeviceId = status.active.deviceId;
   const expiresAt = Date.parse(status.controlLease?.expiresAt || '');
   if (status.controlLease?.owner === owner && Number.isFinite(expiresAt)
-      && expiresAt - Date.now() > minimumControlLeaseRemainingMillis) return;
-  await api('POST', '/control/start', { durationMillis: automaticControlLeaseMillis, owner, deviceId: commandDeviceId, displayOnly });
+      && expiresAt - Date.now() > minimumControlLeaseRemainingMillis
+      && (background || status.controlLease.background !== true)) return;
+  await api('POST', '/control/start', { durationMillis: automaticControlLeaseMillis, owner,
+    deviceId: commandDeviceId, displayOnly, background });
 }
 
 async function command(name, args = {}, timeoutMs = 20_000, maintainDisplayLease = true) {
-  if (maintainDisplayLease) await ensureControlLease(name === 'wake');
-  else if (!commandDeviceId) commandDeviceId = (await api('GET', '/status')).selectedDeviceId;
-  const apiTimeoutMs = Math.max(35_000, Math.min(timeoutMs + 5_000, 125_000));
-  return api('POST', '/command', { command: name, args, timeoutMs, owner, deviceId: commandDeviceId }, apiTimeoutMs);
+  const longAdbCommand = ['adb', 'adb_pair', 'adb_bind'].includes(name);
+  const apiTimeoutMs = Math.max(35_000,
+    Math.min(timeoutMs + (longAdbCommand ? 210_000 : 20_000), longAdbCommand ? 900_000 : 140_000));
+  const reconnectDeadline = Date.now() + 30_000;
+  for (let attempt = 0; ; attempt++) {
+    let submitted = false;
+    try {
+      if (maintainDisplayLease) await ensureControlLease(name === 'wake',
+        ['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping', 'adb_tunnel_status'].includes(name), Math.max(1, reconnectDeadline - Date.now()));
+      else if (!commandDeviceId) commandDeviceId = (await api('GET', '/status')).selectedDeviceId;
+      submitted = true;
+      return await api('POST', '/command', { command: name, args, timeoutMs, owner, deviceId: commandDeviceId }, apiTimeoutMs);
+    } catch (error) {
+      // The relay marks only failures before native caller dispatch. Results
+      // from an executed SDK command and uncertain submissions retain one attempt.
+      const notStarted = !submitted || error.dispatchState === 'not-started';
+      if (name !== 'adb' || !maintainDisplayLease || !notStarted || attempt >= 2 || Date.now() >= reconnectDeadline
+          || !/^(device-not-connected|device-disconnected|device-readiness-pending|control-lease-required|adb-control-lease-expired|command-timeout)$/.test(error.message)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
 }
 
 function hashFile(file) {
@@ -163,14 +203,41 @@ async function installApk(inputPath) {
   } finally {
     fs.closeSync(descriptor);
   }
-  const committed = await command('install_commit', { uploadId }, 120_000);
+  let committed;
+  let submissionError;
+  // A resumed sealed session must never be committed a second time.
+  if (begin.result?.status === 'uploading') {
+    try { committed = await command('install_commit', { uploadId }, 120_000); }
+    catch (error) {
+      if (!/^(device-not-connected|device-disconnected|command-timeout|API timeout)$/.test(error.message)) throw error;
+      submissionError = error.message;
+    }
+  }
+  const deadline = Date.now() + 10_000;
+  let status;
+  while (Date.now() < deadline) {
+    try {
+      status = (await command('install_status', { uploadId })).result;
+      if (['success', 'failed', 'pending-user-action'].includes(status?.status) && status.uploadId !== uploadId) {
+        throw new Error('Companion returned a different APK installation result');
+      }
+      if (['success', 'failed', 'pending-user-action'].includes(status?.status)) break;
+    } catch (error) {
+      if (!/^(device-not-connected|device-disconnected|command-timeout|API timeout|selected-device-changed)$/.test(error.message)) throw error;
+      // Poll this upload on the same device after self-replacement; never resend it.
+      if (error.message === 'selected-device-changed') throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  const states = { success: 'INSTALLED', failed: 'INSTALL_FAILED', 'pending-user-action': 'PENDING_USER_ACTION' };
   return {
     ok: true,
-    state: 'SUBMITTED',
+    state: states[status?.status] || (submissionError ? 'SUBMISSION_UNCONFIRMED' : 'SUBMITTED'),
     uploadId,
     sha256,
     sizeBytes: details.size,
-    result: committed.result,
+    result: status || committed?.result || begin.result,
+    ...(submissionError ? { submissionError } : {}),
   };
 }
 
@@ -188,6 +255,7 @@ function sessionPath(name) {
 function selectorFrom(value, session) {
   if (/^@e\d+$/.test(value)) {
     const stored = JSON.parse(fs.readFileSync(sessionPath(session), 'utf8'));
+    if (explicitDeviceId && stored.deviceId !== explicitDeviceId) throw new Error('snapshot-device-mismatch');
     commandDeviceId = stored.deviceId || null;
     const node = stored.refs[value];
     if (!node) usage(`unknown element reference ${value}`);
@@ -246,7 +314,7 @@ async function main() {
     case 'status': result = await api('GET', '/status'); break;
     case 'select':
       if (!args[0]) usage('deviceId is required');
-      result = await api('POST', '/select', { deviceId: args[0] });
+      result = await api('POST', '/select', { deviceId: args[0], owner });
       break;
     case 'enroll':
       if (!args[0]) usage('deviceId is required');
@@ -255,9 +323,30 @@ async function main() {
     case 'snapshot': await snapshot(args[0]); return;
     case 'press':
       if (!args[0]) usage('global action is required');
-      result = await command('global', { action: args[0] });
+      result = await command('global', { action: args[0], ...(args[1] ? { expectedPackage: args[1] } : {}) });
       break;
     case 'tap': result = await command('tap', { x: finite(args[0], 'x'), y: finite(args[1], 'y') }); break;
+    case 'system-input': {
+      const inputArgs = JSON.parse(args[0] || '{}');
+      result = await command('system_input', inputArgs, 60000);
+      break;
+    }
+    case 'adb': {
+      const request = JSON.parse(args[0] || '{}');
+      result = await command('adb', request, (request.timeoutMs || 60_000) + 20_000);
+      if (!result.ok) process.exitCode = Number.isInteger(result.result?.exitCode)
+        && result.result.exitCode > 0 ? Math.min(result.result.exitCode, 255) : 1;
+      break;
+    }
+    case 'adb-pair':
+      if (!/^\d{6}$/.test(args[0] || '')) usage('six-digit ADB pairing code is required');
+      result = await command('adb_pair', { code: args[0] }, 65_000);
+      if (!result.ok) process.exitCode = 1;
+      break;
+    case 'adb-bind':
+      result = await command('adb_bind', {}, 65_000);
+      if (!result.ok) process.exitCode = 1;
+      break;
     case 'swipe':
       result = await command('swipe', {
         startX: finite(args[0], 'startX'), startY: finite(args[1], 'startY'),
@@ -279,10 +368,21 @@ async function main() {
       result = await command('click', { selector: clickSelector });
       break;
     }
-    case 'set-text':
+    case 'set-text': {
       if (!args[0] || args[1] === undefined) usage('selector and value are required');
-      result = await command('set_text', { selector: selectorFrom(args[0], args[2]), text: args[1] });
+      if (args[1] === '--stdin') {
+        const input = fs.readFileSync(0);
+        try {
+          if (!input.length || input.length > 8192 || input.includes(0)) usage('invalid stdin text');
+          result = await command('set_text', { selector: selectorFrom(args[0], args[2]), text: input.toString('utf8') });
+          if (result?.ok !== true || result.result?.performed !== true) throw new Error('Sensitive UI input delivery not confirmed');
+          result = { ok: true, result: { performed: true } };
+        } finally { input.fill(0); }
+      } else {
+        result = await command('set_text', { selector: selectorFrom(args[0], args[2]), text: args[1] });
+      }
       break;
+    }
     case 'open':
       if (!args[0]) usage('package name is required');
       result = await command('launch', { packageName: args[0] });
@@ -303,26 +403,32 @@ async function main() {
     }
     case 'install':
       result = await installApk(args[0]);
+      if (result.state === 'INSTALL_FAILED') process.exitCode = 1;
       break;
     case 'install-status':
       result = await command('install_status', { uploadId: args[0] || '' });
       break;
     case 'wake': result = await command('wake'); break;
     case 'diagnostics': result = await command('diagnostics'); break;
+    case 'adb-status': result = await command('adb_tunnel_status', { repair: args.includes('--repair') }); break;
     case 'session-start': {
       const minutesValue = args.find((value) => !value.startsWith('--'));
       const minutes = minutesValue === undefined ? 60 : finite(minutesValue, 'minutes');
-      const status = await api('GET', '/status');
-      if (!status.active) throw new Error('device-not-connected');
+      const status = await connectedStatus();
       result = await api('POST', '/control/start', {
         durationMillis: minutes * 60_000,
         owner,
         deviceId: status.active.deviceId,
         force: args.includes('--force'),
+        background: args.includes('--background'),
       });
       break;
     }
-    case 'session-stop': result = await api('POST', '/control/stop', { owner, force: args.includes('--force') }); break;
+    case 'session-stop': {
+      const status = await api('GET', '/status');
+      result = await api('POST', '/control/stop', { owner, deviceId: status.selectedDeviceId || status.active?.deviceId, force: args.includes('--force') });
+      break;
+    }
     case 'lease': result = await command('lease', { leaseMillis: args[0] === undefined ? 120_000 : finite(args[0], 'milliseconds') }, 20_000, false); break;
     case 'release': result = await command('release_lease', {}, 20_000, false); break;
     case 'raw':
@@ -339,6 +445,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error.message || error}\n`);
+  process.stderr.write(process.argv.includes('--stdin') ? 'Sensitive UI input failed; delivery outcome unconfirmed\n' : `${error.message || error}\n`);
   process.exitCode = 1;
 });

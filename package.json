@@ -1,6 +1,6 @@
 {
   "name": "android-remote-lab",
-  "version": "0.1.1",
+  "version": "0.1.2-tv.0",
   "description": "Secure on-demand control and physical-device testing for Android through a Windows relay",
   "license": "MIT",
   "author": "heelee912",
@@ -10,7 +10,9 @@
   },
   "homepage": "https://github.com/heelee912/android-remote-lab#readme",
   "bugs": "https://github.com/heelee912/android-remote-lab/issues",
-  "os": ["win32"],
+  "os": [
+    "win32"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -34,10 +36,10 @@
   ],
   "scripts": {
     "build-launcher": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File windows/Build-Launcher.ps1",
-    "check": "node --check src/relay.js && node --check src/client.js && node --check src/adapter.mjs && node --check bin/arlab.mjs",
+    "check": "node --check src/relay.js && node --check src/client.js && node --check src/system-input.js && node --check src/adb-device.js && node --check src/adb-tunnel.js && node --check src/adb-route.js && node --check src/adapter.mjs && node --check bin/arlab.mjs",
     "install": "npm run validate-launcher",
     "prepare": "npm run build-launcher",
-    "test": "node test/relay.test.js && node test/client-session.test.js && node test/doctor.test.mjs && node test/wake.test.mjs && node test/selector.test.js && node --test test/android-manifest.test.mjs",
+    "test": "node test/relay.test.js && node test/client-session.test.js && node test/client-install.test.js && node test/doctor.test.mjs && node test/wake.test.mjs && node test/selector.test.js && node --test test/android-manifest.test.mjs test/system-input.test.js test/adb-device.test.js test/adb-tunnel.test.js test/adb-route.test.js test/adb-cli.test.mjs",
     "validate-launcher": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File windows/Verify-Launcher.ps1",
     "validate-powershell": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/validate-powershell.ps1",
     "validate-skill": "node test/validate-skill.mjs",

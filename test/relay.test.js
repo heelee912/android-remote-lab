@@ -23,6 +23,7 @@ function frame(value) {
 function reader(socket) {
   let buffered = Buffer.alloc(0);
   const waiting = [];
+  const received = [];
   socket.on('data', (chunk) => {
     buffered = Buffer.concat([buffered, chunk]);
     while (buffered.length >= 4) {
@@ -30,19 +31,22 @@ function reader(socket) {
       if (buffered.length < size + 4) break;
       const value = JSON.parse(buffered.subarray(4, size + 4).toString('utf8'));
       buffered = buffered.subarray(size + 4);
-      waiting.shift()?.resolve(value);
+      const waiter = waiting.shift();
+      if (waiter) waiter.resolve(value);
+      else received.push(value);
     }
   });
   socket.on('error', (error) => waiting.splice(0).forEach((item) => item.reject(error)));
-  return () => new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+  return () => received.length ? Promise.resolve(received.shift())
+    : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
 }
 
-function request(port, token, method, route, body) {
+function request(port, token, method, route, body, statusOwner = 'test-thread') {
   return new Promise((resolve, reject) => {
     const encoded = body === undefined ? null : Buffer.from(JSON.stringify(body));
     const req = http.request({
       host: '127.0.0.1', port, method, path: route,
-      headers: { 'x-companion-token': token, ...(encoded ? { 'content-length': encoded.length } : {}) },
+      headers: { 'x-companion-token': token, 'x-companion-owner': statusOwner, ...(encoded ? { 'content-length': encoded.length } : {}) },
     }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
@@ -93,7 +97,11 @@ async function connectAndAuthenticate(port, identity) {
     publicKey: identity.publicKey, clientNonce, signature,
   };
   socket.write(frame(authFrame));
-  return { socket, next, auth: await next(), authFrame };
+  const auth = await next();
+  if (auth.type === 'auth_ok') {
+    assert.equal((await next()).type, 'ping', 'Readiness is requested immediately after authentication');
+  }
+  return { socket, next, auth, authFrame };
 }
 
 async function main() {
@@ -250,6 +258,14 @@ async function main() {
     });
     const sequenceCommand = await second.next();
     assert.equal(sequenceCommand.seq, 5);
+    for (const route of ['/command', '/control/start', '/control/stop']) {
+      const conflict = await Promise.race([
+        request(apiPort, token, 'POST', route, { owner: 'different-thread', command: 'diagnostics' }),
+        delay(1000).then(() => { throw new Error('ownership conflict waited behind an active device command'); }),
+      ]);
+      assert.equal(conflict.status, 409);
+      assert.equal(conflict.body.error, 'control-owned-by-another-session');
+    }
     second.socket.write(frame({
       type: 'response', requestId: sequenceCommand.requestId, seq: 1,
       ok: true, result: { acceptedStaleSequence: true },
@@ -267,6 +283,28 @@ async function main() {
     const leaseStatus = await request(apiPort, token, 'GET', '/status');
     assert.ok(leaseStatus.body.controlLease?.expiresAt);
     assert.equal(leaseStatus.body.controlLease.owner, owner);
+
+    const blockedSystemInput = await request(apiPort, token, 'POST', '/command', {
+      command: 'system_input', owner: 'different-thread', args: { action: 'tap', x: 1, y: 1 },
+    });
+    assert.equal(blockedSystemInput.status, 409);
+    assert.equal(blockedSystemInput.body.error, 'control-owned-by-another-session');
+    const unmappedSystemInput = await request(apiPort, token, 'POST', '/command', {
+      command: 'system_input', owner, args: { action: 'tap', x: 1, y: 1 },
+    });
+    assert.equal(unmappedSystemInput.status, 409);
+    assert.equal(unmappedSystemInput.body.error, 'system-input-not-configured');
+
+    const blockedAdb = await request(apiPort, token, 'POST', '/command', {
+      command: 'adb', owner: 'different-thread', args: { argv: ['shell', 'id'] },
+    });
+    assert.equal(blockedAdb.status, 409);
+    assert.equal(blockedAdb.body.error, 'control-owned-by-another-session');
+    const unmappedAdb = await request(apiPort, token, 'POST', '/command', {
+      command: 'adb', owner, args: { argv: ['shell', 'id'] },
+    });
+    assert.equal(unmappedAdb.status, 409);
+    assert.equal(unmappedAdb.body.error, 'adb-not-configured');
 
     const blockedStop = await request(apiPort, token, 'POST', '/control/stop', { owner: 'different-thread' });
     assert.equal(blockedStop.status, 409);
@@ -308,6 +346,44 @@ async function main() {
     }));
     assert.equal((await raceStopPromise).status, 200);
 
+    // A secure, sleeping phone can grant ownership without a display lease.
+    second.socket.write(frame({ type: 'pong', versionCode: 15, keyguardLocked: true,
+      secureKeyguardLocked: true, screenInteractive: false, userUnlocked: true, accessibilityReady: false }));
+    const backgroundStart = request(apiPort, token, 'POST', '/control/start', { owner, background: true });
+    const backgroundPing = await second.next();
+    assert.equal(backgroundPing.command, 'ping');
+    second.socket.write(frame({ type: 'response', requestId: backgroundPing.requestId, seq: backgroundPing.seq,
+      ok: true, result: { pong: true, leaseRemainingMillis: 0 } }));
+    assert.equal((await backgroundStart).body.result.background, true);
+    const backgroundStatus = await request(apiPort, token, 'GET', '/status');
+    assert.equal(backgroundStatus.body.controlLease.background, true);
+    assert.equal(backgroundStatus.body.active.screenInteractive, false);
+    assert.equal((await request(apiPort, token, 'POST', '/command', {
+      command: 'adb', owner, args: { argv: ['shell', 'id'] },
+    })).body.error, 'adb-not-configured', 'ADB reaches its own transport check without asking the screen to unlock');
+    const backgroundDiagnostic = request(apiPort, token, 'POST', '/command', { owner, command: 'diagnostics' });
+    const diagnosticCommand = await second.next();
+    assert.equal(diagnosticCommand.command, 'diagnostics');
+    second.socket.write(frame({ type: 'response', requestId: diagnosticCommand.requestId, seq: diagnosticCommand.seq,
+      ok: true, result: { screenInteractive: false } }));
+    assert.equal((await backgroundDiagnostic).status, 200);
+    const blockedBackgroundOwner = await request(apiPort, token, 'POST', '/control/start', {
+      owner: 'different-thread', background: true,
+    });
+    assert.equal(blockedBackgroundOwner.status, 409);
+    const upgrade = request(apiPort, token, 'POST', '/command', { owner, command: 'snapshot' });
+    const upgradeLease = await second.next();
+    assert.equal(upgradeLease.command, 'lease');
+    second.socket.write(frame({ type: 'response', requestId: upgradeLease.requestId, seq: upgradeLease.seq,
+      ok: false, error: { code: 'SecurityException', message: 'Secure keyguard is locked' } }));
+    assert.equal((await upgrade).status, 409);
+    assert.equal((await request(apiPort, token, 'GET', '/status')).body.controlLease.background, true);
+    const backgroundStop = await request(apiPort, token, 'POST', '/control/stop', { owner });
+    assert.equal(backgroundStop.status, 200);
+    assert.equal(backgroundStop.body.result.released, true);
+    assert.equal(backgroundStop.body.result.displayReleased, false);
+    assert.equal((await request(apiPort, token, 'GET', '/status')).body.controlLease, null);
+
     const tabletKeys = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
     const tabletDer = tabletKeys.publicKey.export({ type: 'spki', format: 'der' });
     const tabletIdentity = {
@@ -327,10 +403,10 @@ async function main() {
     assert.equal(bothDevices.connectedDevices.length, 2);
     assert.equal(bothDevices.active.deviceId, identity.deviceId);
     assert.equal(second.socket.destroyed, false);
-    assert.equal((await request(apiPort, token, 'POST', '/select', { deviceId: tabletIdentity.deviceId })).status, 200);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(state, 'device-selection.json'))).deviceId, tabletIdentity.deviceId);
-    const wrongDevice = await request(apiPort, token, 'POST', '/control/start', { owner, deviceId: identity.deviceId });
-    assert.equal(wrongDevice.body.error, 'selected-device-changed');
+    assert.equal((await request(apiPort, token, 'POST', '/select', { owner, deviceId: tabletIdentity.deviceId })).status, 200);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(state, 'device-selection.json'))).owners[owner], tabletIdentity.deviceId);
+    const wrongDevice = await request(apiPort, token, 'POST', '/command', { owner, deviceId: identity.deviceId, command: 'diagnostics' });
+    assert.equal(wrongDevice.body.error, 'control-lease-required');
     const tabletStart = request(apiPort, token, 'POST', '/control/start', { owner, deviceId: tabletIdentity.deviceId });
     const tabletLease = await tablet.next();
     const tabletResponse = { type: 'response', requestId: tabletLease.requestId, seq: tabletLease.seq, ok: true, result: { leaseMillis: 90_000 } };
@@ -339,19 +415,54 @@ async function main() {
     assert.equal((await request(apiPort, token, 'GET', '/status')).body.controlLease, null);
     tablet.socket.write(frame(tabletResponse));
     assert.equal((await tabletStart).body.result.deviceId, tabletIdentity.deviceId);
-    assert.equal((await request(apiPort, token, 'POST', '/select', { deviceId: identity.deviceId })).body.error, 'stop-session-before-device-selection');
-    assert.equal((await request(apiPort, token, 'POST', '/command', { owner, deviceId: identity.deviceId, command: 'diagnostics' })).body.error, 'selected-device-changed');
+    assert.equal((await request(apiPort, token, 'POST', '/select', { owner, deviceId: identity.deviceId })).body.error, 'stop-session-before-device-selection');
+    assert.equal((await request(apiPort, token, 'POST', '/command', { owner, deviceId: identity.deviceId, command: 'diagnostics' })).body.error, 'control-lease-required');
+    // A pending acquisition on one device must not block another device.
+    const phoneOwner = 'phone-thread';
+    assert.equal((await request(apiPort, token, 'POST', '/select', { owner: phoneOwner, deviceId: identity.deviceId })).status, 200);
+    const phoneStart = request(apiPort, token, 'POST', '/control/start', { owner: phoneOwner, deviceId: identity.deviceId });
+    const phoneLease = await second.next();
+    assert.equal(phoneLease.command, 'lease');
+    const tabletRenew = request(apiPort, token, 'POST', '/control/start', { owner, deviceId: tabletIdentity.deviceId });
+    const tabletRenewCommand = await Promise.race([tablet.next(), delay(1000).then(() => { throw new Error('phone blocked tablet'); })]);
+    tablet.socket.write(frame({ type: 'response', requestId: tabletRenewCommand.requestId, seq: tabletRenewCommand.seq, ok: true, result: {} }));
+    assert.equal((await tabletRenew).status, 200);
+    second.socket.write(frame({ type: 'response', requestId: phoneLease.requestId, seq: phoneLease.seq, ok: true, result: {} }));
+    assert.equal((await phoneStart).status, 200);
+    const concurrentStatus = (await request(apiPort, token, 'GET', '/status')).body;
+    assert.equal(concurrentStatus.controlLeases.length, 2);
+    assert.equal((await request(apiPort, token, 'GET', '/status', undefined, phoneOwner)).body.active.deviceId, identity.deviceId);
+    assert.equal(concurrentStatus.active.deviceId, tabletIdentity.deviceId);
+    const otherPhoneOwner = await request(apiPort, token, 'POST', '/control/start', { owner: 'intruder', deviceId: identity.deviceId });
+    assert.equal(otherPhoneOwner.status, 409);
+    assert.equal((await request(apiPort, token, 'POST', '/command', { owner: phoneOwner, deviceId: tabletIdentity.deviceId, command: 'diagnostics' })).status, 409);
+    assert.equal((await request(apiPort, token, 'POST', '/control/stop', { owner: phoneOwner, deviceId: tabletIdentity.deviceId })).status, 409);
+    const phoneAction = request(apiPort, token, 'POST', '/command', { owner: phoneOwner, deviceId: identity.deviceId, command: 'diagnostics' });
+    const tabletAction = request(apiPort, token, 'POST', '/command', { owner, deviceId: tabletIdentity.deviceId, command: 'snapshot' });
+    const [phoneCommand, tabletCommand] = await Promise.all([second.next(), tablet.next()]);
+    assert.equal(phoneCommand.command, 'diagnostics');
+    assert.equal(tabletCommand.command, 'snapshot');
+    second.socket.write(frame({ type: 'response', requestId: phoneCommand.requestId, seq: phoneCommand.seq, ok: true, result: { device: 'phone' } }));
+    tablet.socket.write(frame({ type: 'response', requestId: tabletCommand.requestId, seq: tabletCommand.seq, ok: true, result: { device: 'tablet' } }));
+    assert.deepEqual((await Promise.all([phoneAction, tabletAction])).map(value => value.body.result.device), ['phone', 'tablet']);
     const tabletStop = request(apiPort, token, 'POST', '/control/stop', { owner, deviceId: tabletIdentity.deviceId });
     const tabletRelease = await tablet.next();
     assert.equal(tabletRelease.command, 'release_lease');
     tablet.socket.write(frame({ type: 'response', requestId: tabletRelease.requestId, seq: tabletRelease.seq, ok: true, result: { released: true } }));
     assert.equal((await tabletStop).status, 200);
+    const stillPhone = (await request(apiPort, token, 'GET', '/status', undefined, phoneOwner)).body;
+    assert.equal(stillPhone.controlLease.owner, phoneOwner);
+    assert.equal(stillPhone.controlLeases.length, 1);
     tablet.socket.destroy();
     await delay(50);
     const offlineTablet = (await request(apiPort, token, 'GET', '/status')).body;
     assert.equal(offlineTablet.active, null);
     assert.equal(offlineTablet.selectedDeviceId, tabletIdentity.deviceId);
     assert.equal(offlineTablet.connectedDevices[0].deviceId, identity.deviceId);
+    const phoneStop = request(apiPort, token, 'POST', '/control/stop', { owner: phoneOwner, deviceId: identity.deviceId });
+    const phoneRelease = await second.next();
+    second.socket.write(frame({ type: 'response', requestId: phoneRelease.requestId, seq: phoneRelease.seq, ok: true, result: {} }));
+    assert.equal((await phoneStop).status, 200);
     const restartConfigPath = path.join(state, 'restart-config.json');
     fs.writeFileSync(restartConfigPath, JSON.stringify({
       stateDir: state, runtimeDir, relayHost: 'relay.example.test',
@@ -372,7 +483,7 @@ async function main() {
       restartedPhone?.socket.destroy();
       restartedRelay.kill();
     }
-    assert.equal((await request(apiPort, token, 'POST', '/select', { deviceId: identity.deviceId })).status, 200);
+    assert.equal((await request(apiPort, token, 'POST', '/select', { owner, deviceId: identity.deviceId })).status, 200);
     second.socket.destroy();
 
     const renewalState = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-relay-renewal-test-'));
@@ -436,6 +547,44 @@ async function main() {
       assert.equal((await renewalStop).status, 200);
       const stoppedStatus = await request(apiPort + 2, renewalToken, 'GET', '/status');
       assert.equal(stoppedStatus.body.controlLease, null);
+
+      const backgroundStart = request(apiPort + 2, renewalToken, 'POST', '/control/start', {
+        owner: 'background-idle-owner', background: true,
+      });
+      const backgroundProbe = await renewalDevice.next();
+      assert.equal(backgroundProbe.command, 'ping');
+      renewalDevice.socket.write(frame({ type: 'response', requestId: backgroundProbe.requestId,
+        seq: backgroundProbe.seq, ok: true, result: { pong: true } }));
+      assert.equal((await backgroundStart).status, 200);
+      let unexpectedFrames = 0;
+      const countUnexpected = () => unexpectedFrames++;
+      renewalDevice.socket.on('data', countUnexpected);
+      await delay(800); // More than three interactive renewal intervals.
+      renewalDevice.socket.off('data', countUnexpected);
+      assert.equal(unexpectedFrames, 0, 'Idle background ownership must never send display renewals');
+      const promoted = request(apiPort + 2, renewalToken, 'POST', '/control/start', {
+        owner: 'background-idle-owner',
+      });
+      const promoteLease = await renewalDevice.next();
+      assert.equal(promoteLease.command, 'lease');
+      renewalDevice.socket.write(frame({ type: 'response', requestId: promoteLease.requestId,
+        seq: promoteLease.seq, ok: true, result: { leaseMillis: 90000 } }));
+      assert.equal((await promoted).body.result.background, false);
+      const downgraded = request(apiPort + 2, renewalToken, 'POST', '/control/start', {
+        owner: 'background-idle-owner', background: true,
+      });
+      const downgradeProbe = await renewalDevice.next();
+      assert.equal(downgradeProbe.command, 'ping');
+      renewalDevice.socket.write(frame({ type: 'response', requestId: downgradeProbe.requestId,
+        seq: downgradeProbe.seq, ok: true, result: { pong: true } }));
+      const displayRelease = await renewalDevice.next();
+      assert.equal(displayRelease.command, 'release_lease');
+      renewalDevice.socket.write(frame({ type: 'response', requestId: displayRelease.requestId,
+        seq: displayRelease.seq, ok: true, result: { released: true } }));
+      assert.equal((await downgraded).body.result.background, true);
+      assert.equal((await request(apiPort + 2, renewalToken, 'POST', '/control/stop', {
+        owner: 'background-idle-owner',
+      })).body.result.displayReleased, false);
     } finally {
       renewalDevice?.socket.destroy();
       renewalRelay.kill();

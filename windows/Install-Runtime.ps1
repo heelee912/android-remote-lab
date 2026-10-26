@@ -62,6 +62,10 @@ if ($ImportState) {
 }
 Copy-WithRetry (Join-Path $PackageRoot 'src\relay.js') (Join-Path $runtime 'relay.js')
 Copy-WithRetry (Join-Path $PackageRoot 'src\config.js') (Join-Path $runtime 'config.js')
+Copy-WithRetry (Join-Path $PackageRoot 'src\system-input.js') (Join-Path $runtime 'system-input.js')
+Copy-WithRetry (Join-Path $PackageRoot 'src\adb-device.js') (Join-Path $runtime 'adb-device.js')
+Copy-WithRetry (Join-Path $PackageRoot 'src\adb-tunnel.js') (Join-Path $runtime 'adb-tunnel.js')
+Copy-WithRetry (Join-Path $PackageRoot 'src\adb-route.js') (Join-Path $runtime 'adb-route.js')
 Copy-WithRetry (Join-Path $PackageRoot 'windows\CompanionRelayLauncher.exe') (Join-Path $runtime 'CompanionRelayLauncher.exe')
 
 $config = [ordered]@{
@@ -74,7 +78,11 @@ $config = [ordered]@{
     apiPort = 7011
     taskName = $taskName
 }
-$json = $config | ConvertTo-Json
+if (Test-Path -LiteralPath $configPath) {
+    $previousConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    if ($previousConfig.PSObject.Properties['systemInput']) { $config.systemInput = $previousConfig.systemInput }
+}
+$json = $config | ConvertTo-Json -Depth 8
 [System.IO.File]::WriteAllText($configPath, $json, [System.Text.UTF8Encoding]::new($false))
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
