@@ -56,6 +56,11 @@ final class TvRemoteControl implements AutoCloseable {
 
     private final Context context;
     private SSLSocket pairingSocket;
+    private String lastClientKeyTypes = "";
+    private boolean lastClientAliasSelected;
+    private boolean lastServerCertificateSeen;
+    private boolean lastServerCertificateMatched;
+    private String lastControlError = "";
 
     TvRemoteControl(Context context) {
         this.context = context;
@@ -64,7 +69,12 @@ final class TvRemoteControl implements AutoCloseable {
     synchronized JSONObject status() throws Exception {
         return new JSONObject()
                 .put("paired", preferences().contains(PINNED_CERTIFICATE))
-                .put("pairingCodeExpected", pairingSocket != null && !pairingSocket.isClosed());
+                .put("pairingCodeExpected", pairingSocket != null && !pairingSocket.isClosed())
+                .put("lastClientKeyTypes", lastClientKeyTypes)
+                .put("lastClientAliasSelected", lastClientAliasSelected)
+                .put("lastServerCertificateSeen", lastServerCertificateSeen)
+                .put("lastServerCertificateMatched", lastServerCertificateMatched)
+                .put("lastControlError", lastControlError);
     }
 
     synchronized JSONObject beginPairing() throws Exception {
@@ -178,8 +188,22 @@ final class TvRemoteControl implements AutoCloseable {
             TvRemoteWire.send(socket.getOutputStream(), TvRemoteWire.bytes(10,
                     TvRemoteWire.join(TvRemoteWire.number(1, keyCode),
                             TvRemoteWire.number(2, 3))));
+            lastControlError = "";
             return new JSONObject().put("dispatched", true).put("key", key);
+        } catch (Exception error) {
+            lastControlError = describe(error);
+            throw error;
         }
+    }
+
+    private static String describe(Throwable error) {
+        StringBuilder description = new StringBuilder();
+        for (int index = 0; error != null && index < 4; index++, error = error.getCause()) {
+            if (description.length() > 0) description.append(" <- ");
+            description.append(error.getClass().getSimpleName());
+            if (error.getMessage() != null) description.append(": ").append(error.getMessage());
+        }
+        return description.toString();
     }
 
     private SharedPreferences preferences() {
@@ -202,6 +226,12 @@ final class TvRemoteControl implements AutoCloseable {
         KeyStore keys = clientKeys();
         X509Certificate certificate = (X509Certificate) keys.getCertificate(CERTIFICATE_ALIAS);
         PrivateKey privateKey = (PrivateKey) keys.getKey(CERTIFICATE_ALIAS, null);
+        if (port == CONTROL_PORT) {
+            lastClientKeyTypes = "";
+            lastClientAliasSelected = false;
+            lastServerCertificateSeen = false;
+            lastServerCertificateMatched = false;
+        }
         X509KeyManager keyManager = new ClientKeyManager(certificate, privateKey);
         X509TrustManager trustManager = new PinnedServer(expectedCertificateHash);
         SSLContext tls = SSLContext.getInstance("TLS");
@@ -275,7 +305,7 @@ final class TvRemoteControl implements AutoCloseable {
         pairingSocket = null;
     }
 
-    private static final class PinnedServer implements X509TrustManager {
+    private final class PinnedServer implements X509TrustManager {
         private final String pin;
 
         PinnedServer(String pin) { this.pin = pin; }
@@ -285,8 +315,10 @@ final class TvRemoteControl implements AutoCloseable {
                 throws CertificateException {
             if (chain == null || chain.length == 0) throw new CertificateException("TV certificate is missing");
             if (pin == null) return; // The displayed pairing code authenticates the first certificate.
+            lastServerCertificateSeen = true;
             try {
                 String actual = hex(MessageDigest.getInstance("SHA-256").digest(chain[0].getEncoded()));
+                lastServerCertificateMatched = pin.equals(actual);
                 if (!pin.equals(actual)) throw new CertificateException("TV remote certificate changed");
             } catch (java.security.GeneralSecurityException error) {
                 throw new CertificateException(error);
@@ -294,7 +326,7 @@ final class TvRemoteControl implements AutoCloseable {
         }
     }
 
-    private static final class ClientKeyManager implements X509KeyManager {
+    private final class ClientKeyManager implements X509KeyManager {
         private final X509Certificate certificate;
         private final PrivateKey key;
 
@@ -303,11 +335,20 @@ final class TvRemoteControl implements AutoCloseable {
             this.key = key;
         }
         public String[] getClientAliases(String keyType, java.security.Principal[] issuers) {
-            return "RSA".equals(keyType) ? new String[]{CERTIFICATE_ALIAS} : null;
+            return acceptsRsa(keyType) ? new String[]{CERTIFICATE_ALIAS} : null;
         }
         public String chooseClientAlias(String[] keyTypes, java.security.Principal[] issuers, Socket socket) {
-            for (String type : keyTypes) if ("RSA".equals(type)) return CERTIFICATE_ALIAS;
+            lastClientKeyTypes = keyTypes == null ? "" : String.join(",", keyTypes);
+            if (keyTypes != null) for (String type : keyTypes) {
+                if (acceptsRsa(type)) {
+                    lastClientAliasSelected = true;
+                    return CERTIFICATE_ALIAS;
+                }
+            }
             return null;
+        }
+        private boolean acceptsRsa(String keyType) {
+            return keyType != null && ("RSA".equals(keyType) || keyType.startsWith("RSA_"));
         }
         public String[] getServerAliases(String keyType, java.security.Principal[] issuers) { return null; }
         public String chooseServerAlias(String keyType, java.security.Principal[] issuers, Socket socket) { return null; }
