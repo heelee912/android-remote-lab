@@ -34,7 +34,7 @@ import javax.security.auth.x500.X500Principal;
 
 /** Pairs with the TV's own remote service and sends D-pad keys without Accessibility. */
 final class TvRemoteControl implements AutoCloseable {
-    private static final String CERTIFICATE_ALIAS = "remote-companion-tv-control-v1";
+    private static final String CERTIFICATE_ALIAS = "remote-companion-tv-control-v2";
     private static final String PREFERENCES = "tv-remote-control";
     private static final String PINNED_CERTIFICATE = "server-certificate-sha256";
     private static final int PAIRING_PORT = 6467;
@@ -211,9 +211,6 @@ final class TvRemoteControl implements AutoCloseable {
             plain.connect(new InetSocketAddress("127.0.0.1", port), 2_000);
             SSLSocket socket = (SSLSocket) tls.getSocketFactory().createSocket(
                     plain, "127.0.0.1", port, true);
-            // AndroidKeyStore's RSA key is authorized for PKCS#1 signatures; TLS 1.3
-            // requires RSA-PSS and fails during client authentication on this TV.
-            socket.setEnabledProtocols(new String[]{"TLSv1.2"});
             socket.setSoTimeout(5_000);
             socket.startHandshake();
             return socket;
@@ -233,7 +230,10 @@ final class TvRemoteControl implements AutoCloseable {
             generator.initialize(new KeyGenParameterSpec.Builder(CERTIFICATE_ALIAS,
                     KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                     .setKeySize(2048)
-                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256,
+                            KeyProperties.DIGEST_SHA512)
+                    // Conscrypt performs a raw RSA operation for mutual-TLS signatures.
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
                     .setCertificateSubject(new X500Principal("CN=Android Remote Lab TV Control"))
                     .setCertificateSerialNumber(BigInteger.valueOf(now))
