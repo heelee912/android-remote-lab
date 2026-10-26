@@ -48,6 +48,12 @@ final class MobileAdbRecovery implements AutoCloseable {
                 if (capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
                         && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return;
             }
+            if (!context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI)) {
+                lastError = "mobile ADB recovery requires Wi-Fi hardware";
+                audit.accept(lastError);
+                nextAttemptMillis = SystemClock.elapsedRealtime() + 30_000L;
+                return;
+            }
             String permission = Build.VERSION.SDK_INT >= 33
                     ? Manifest.permission.NEARBY_WIFI_DEVICES : Manifest.permission.ACCESS_FINE_LOCATION;
             if (context.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {

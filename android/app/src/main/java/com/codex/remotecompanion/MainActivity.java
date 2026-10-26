@@ -33,7 +33,8 @@ public final class MainActivity extends Activity {
         setTitle(getString(R.string.app_name));
         if (RelayPreferences.configured(this)) startConnectionService();
 
-        int padding = Math.round(20 * getResources().getDisplayMetrics().density);
+        boolean television = getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+        int padding = Math.round((television ? 28 : 20) * getResources().getDisplayMetrics().density);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(padding, padding, padding, padding);
@@ -41,19 +42,20 @@ public final class MainActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText(R.string.app_name);
-        title.setTextSize(24);
+        title.setTextSize(television ? 36 : 24);
         title.setTextColor(Color.BLACK);
         content.addView(title, matchWrap());
 
         TextView description = new TextView(this);
         description.setText(R.string.description);
-        description.setTextSize(16);
+        description.setTextSize(television ? 24 : 16);
         description.setPadding(0, padding / 2, 0, padding);
         content.addView(description, matchWrap());
 
         host = new EditText(this);
         host.setHint(R.string.relay_host_hint);
         host.setSingleLine(true);
+        if (television) host.setTextSize(23);
         host.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         String currentHost = RelayPreferences.host(this);
         if (!currentHost.isBlank()) host.setText(currentHost);
@@ -62,29 +64,33 @@ public final class MainActivity extends Activity {
         port = new EditText(this);
         port.setHint(R.string.relay_port_hint);
         port.setSingleLine(true);
+        if (television) port.setTextSize(23);
         port.setInputType(InputType.TYPE_CLASS_NUMBER);
         port.setText(String.valueOf(RelayPreferences.port(this)));
         content.addView(port, matchWrap());
 
         Button save = new Button(this);
         save.setText(R.string.save_and_connect);
+        if (television) save.setTextSize(22);
         save.setOnClickListener(view -> saveAndConnect());
         content.addView(save, matchWrap());
 
         status = new TextView(this);
-        status.setTextSize(15);
+        status.setTextSize(television ? 21 : 15);
         status.setTextColor(Color.DKGRAY);
         status.setPadding(0, padding, 0, padding / 2);
         content.addView(status, matchWrap());
 
         Button accessibility = new Button(this);
         accessibility.setText(R.string.open_accessibility);
+        if (television) accessibility.setTextSize(22);
         accessibility.setContentDescription(getString(R.string.open_accessibility_description));
         accessibility.setOnClickListener(view -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         content.addView(accessibility, matchWrap());
 
         Button installs = new Button(this);
         installs.setText(R.string.open_install_permission);
+        if (television) installs.setTextSize(22);
         installs.setContentDescription(getString(R.string.open_install_permission_description));
         installs.setOnClickListener(view -> startActivity(new Intent(
                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,

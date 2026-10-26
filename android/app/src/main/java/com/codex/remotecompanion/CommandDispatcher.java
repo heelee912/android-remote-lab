@@ -3,6 +3,7 @@ package com.codex.remotecompanion;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.UserManager;
 import android.os.SystemClock;
 
@@ -177,7 +178,16 @@ final class CommandDispatcher {
         if (!packageName.matches("[A-Za-z0-9_.]{3,200}")) {
             return false;
         }
-        Intent intent = context.getPackageManager().getLaunchIntentForPackage(packageName);
+        PackageManager packages = context.getPackageManager();
+        boolean television = packages.hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+        Intent intent = television
+                ? packages.getLeanbackLaunchIntentForPackage(packageName)
+                : packages.getLaunchIntentForPackage(packageName);
+        if (intent == null) {
+            intent = television
+                    ? packages.getLaunchIntentForPackage(packageName)
+                    : packages.getLeanbackLaunchIntentForPackage(packageName);
+        }
         if (intent == null) {
             return false;
         }
