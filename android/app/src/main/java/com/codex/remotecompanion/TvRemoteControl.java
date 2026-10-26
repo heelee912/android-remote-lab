@@ -211,6 +211,11 @@ final class TvRemoteControl implements AutoCloseable {
             plain.connect(new InetSocketAddress("127.0.0.1", port), 2_000);
             SSLSocket socket = (SSLSocket) tls.getSocketFactory().createSocket(
                     plain, "127.0.0.1", port, true);
+            if (port == CONTROL_PORT) {
+                // The TV requests client authentication on this port. TLS 1.2 uses
+                // the RSA signature supported by the certificate already paired.
+                socket.setEnabledProtocols(new String[]{"TLSv1.2"});
+            }
             socket.setSoTimeout(5_000);
             socket.startHandshake();
             return socket;
