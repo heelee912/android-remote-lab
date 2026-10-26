@@ -21,7 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/** Carries selected ADB or TV remote bytes only to this device's loopback services. */
+/** Carries selected ADB or TV remote bytes only to services on this device. */
 final class AdbTunnel implements AutoCloseable {
     private final Context context;
     private final MobileAdbRecovery mobileRecovery;
@@ -249,7 +249,12 @@ final class AdbTunnel implements AutoCloseable {
                 try {
                     socket.setSendBufferSize(2 * 1024 * 1024);
                     socket.setReceiveBufferSize(2 * 1024 * 1024);
-                    socket.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 3000);
+                    InetAddress address = tvPairing || tvControl
+                            ? TvRemoteControl.activeInterfaceAddress(context) : null;
+                    // Some TV remote services accept TCP on loopback but close
+                    // its TLS session there. Use this device's active interface.
+                    if (address == null) address = InetAddress.getByName("127.0.0.1");
+                    socket.connect(new InetSocketAddress(address, port), 3000);
                     socket.setTcpNoDelay(true);
                     channel.configureBlocking(false);
                     String id = UUID.randomUUID().toString();

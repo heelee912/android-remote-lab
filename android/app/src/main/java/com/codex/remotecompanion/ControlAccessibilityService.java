@@ -12,6 +12,7 @@ import android.util.Base64;
 import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -55,10 +56,11 @@ public final class ControlAccessibilityService extends AccessibilityService {
     }
 
     JSONObject status() throws Exception {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo root = activeRoot();
         JSONObject value = new JSONObject();
         value.put("connected", true);
         value.put("hasRoot", root != null);
+        value.put("windowCount", getWindows().size());
         if (root != null) {
             value.put("packageName", text(root.getPackageName()));
             value.put("className", text(root.getClassName()));
@@ -67,7 +69,7 @@ public final class ControlAccessibilityService extends AccessibilityService {
     }
 
     JSONObject snapshot() throws Exception {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo root = activeRoot();
         if (root == null) {
             throw new IllegalStateException("No accessibility root is available");
         }
@@ -99,7 +101,7 @@ public final class ControlAccessibilityService extends AccessibilityService {
         String normalizedAction = action.toLowerCase(Locale.ROOT);
         if (normalizedAction.startsWith("dpad_")) {
             if (android.os.Build.VERSION.SDK_INT < 33) return false;
-            AccessibilityNodeInfo root = getRootInActiveWindow();
+            AccessibilityNodeInfo root = activeRoot();
             if (expectedPackage == null || expectedPackage.isBlank() || root == null
                     || !expectedPackage.equals(text(root.getPackageName()))) {
                 throw new IllegalStateException("Keyboard input foreground package changed");
@@ -138,7 +140,7 @@ public final class ControlAccessibilityService extends AccessibilityService {
     }
 
     boolean click(JSONObject selector) throws InterruptedException {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo root = activeRoot();
         if (selector.has("guard") && !guardMatches(root, selector.optJSONObject("guard"))) throw new IllegalStateException("Atomic UI guard changed");
         AccessibilityNodeInfo node = findNode(root, selector);
         if (node == null || node.isPassword()) {
@@ -157,7 +159,7 @@ public final class ControlAccessibilityService extends AccessibilityService {
         // Some official app buttons reject ACTION_CLICK but accept Android
         // gestures. Recheck the same live window and guard before one gesture;
         // never ask the client to resend a financial action after uncertainty.
-        AccessibilityNodeInfo freshRoot = getRootInActiveWindow();
+        AccessibilityNodeInfo freshRoot = activeRoot();
         if (selector.has("guard") && !guardMatches(freshRoot, selector.optJSONObject("guard"))) {
             throw new IllegalStateException("Atomic UI guard changed");
         }
@@ -261,7 +263,24 @@ public final class ControlAccessibilityService extends AccessibilityService {
         } catch (Exception error) { return false; }
     }
 
-    private AccessibilityNodeInfo findNode(JSONObject selector) { return findNode(getRootInActiveWindow(), selector); }
+    private AccessibilityNodeInfo findNode(JSONObject selector) { return findNode(activeRoot(), selector); }
+
+    private AccessibilityNodeInfo activeRoot() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root != null) return root;
+        // Some TV settings panels do not designate an active window. Prefer
+        // focused windows, then any window that exposes an accessibility tree.
+        for (AccessibilityWindowInfo window : getWindows()) {
+            if (!window.isFocused() && !window.isActive()) continue;
+            root = window.getRoot();
+            if (root != null) return root;
+        }
+        for (AccessibilityWindowInfo window : getWindows()) {
+            root = window.getRoot();
+            if (root != null) return root;
+        }
+        return null;
+    }
 
     private AccessibilityNodeInfo findNode(AccessibilityNodeInfo root, JSONObject selector) {
         if (root == null) return null;

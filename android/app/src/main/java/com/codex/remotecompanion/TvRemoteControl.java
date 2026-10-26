@@ -219,7 +219,7 @@ final class TvRemoteControl implements AutoCloseable {
         try {
             return openSocket(CONTROL_PORT, pin, InetAddress.getByName("127.0.0.1"));
         } catch (Exception loopbackFailure) {
-            InetAddress address = activeInterfaceAddress();
+            InetAddress address = activeInterfaceAddress(context);
             if (address == null) throw loopbackFailure;
             lastControlRoute = "active-interface";
             try {
@@ -231,7 +231,7 @@ final class TvRemoteControl implements AutoCloseable {
         }
     }
 
-    private InetAddress activeInterfaceAddress() {
+    static InetAddress activeInterfaceAddress(Context context) {
         ConnectivityManager connectivity = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         Network active = connectivity == null ? null : connectivity.getActiveNetwork();
         LinkProperties links = active == null ? null : connectivity.getLinkProperties(active);
