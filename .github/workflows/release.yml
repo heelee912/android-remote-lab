@@ -68,8 +68,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: "!startsWith(github.ref, 'refs/tags/')"
         with:
-          name: signed-companion-update
-          path: dist/remote-companion.apk*
+          name: tv-preview-assets
+          path: dist/*
           retention-days: 3
       - uses: softprops/action-gh-release@v2
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
