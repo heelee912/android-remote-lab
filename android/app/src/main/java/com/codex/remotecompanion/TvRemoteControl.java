@@ -211,6 +211,9 @@ final class TvRemoteControl implements AutoCloseable {
             plain.connect(new InetSocketAddress("127.0.0.1", port), 2_000);
             SSLSocket socket = (SSLSocket) tls.getSocketFactory().createSocket(
                     plain, "127.0.0.1", port, true);
+            // AndroidKeyStore's RSA key is authorized for PKCS#1 signatures; TLS 1.3
+            // requires RSA-PSS and fails during client authentication on this TV.
+            socket.setEnabledProtocols(new String[]{"TLSv1.2"});
             socket.setSoTimeout(5_000);
             socket.startHandshake();
             return socket;
