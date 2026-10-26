@@ -28,9 +28,11 @@ final class AdbTunnel implements AutoCloseable {
     private final Map<String, SocketChannel> sockets = new HashMap<>();
     private static final int CHUNK_BYTES = 128 * 1024;
     private final NsdManager discovery;
-    private final ArrayDeque<NsdServiceInfo> pendingServices = new ArrayDeque<>();
+    private final ArrayDeque<DiscoveryCandidate> pendingServices = new ArrayDeque<>();
     private volatile int discoveredPort;
     private volatile String discoveredService;
+    private volatile int discoveredPairingPort;
+    private volatile String discoveredPairingService;
     private boolean resolving;
     private volatile boolean closed;
     private long propertiesReadAt = Long.MIN_VALUE;
@@ -45,14 +47,38 @@ final class AdbTunnel implements AutoCloseable {
             if (service.getServiceName().equals(discoveredService)) discoveredPort = 0;
         }
         public void onServiceFound(NsdServiceInfo service) {
-            synchronized (pendingServices) {
-                if (closed || pendingServices.size() >= 64) return;
-                pendingServices.add(service);
-            }
-            resolveNextService();
+            queueService(service, false);
         }
     };
+    private final NsdManager.DiscoveryListener pairingDiscoveryListener = new NsdManager.DiscoveryListener() {
+        public void onDiscoveryStarted(String type) { }
+        public void onDiscoveryStopped(String type) { }
+        public void onStartDiscoveryFailed(String type, int error) { }
+        public void onStopDiscoveryFailed(String type, int error) { }
+        public void onServiceLost(NsdServiceInfo service) {
+            if (service.getServiceName().equals(discoveredPairingService)) discoveredPairingPort = 0;
+        }
+        public void onServiceFound(NsdServiceInfo service) { queueService(service, true); }
+    };
     private NsdManager.DiscoveryListener mobileDiscovery;
+
+    private static final class DiscoveryCandidate {
+        final NsdServiceInfo service;
+        final boolean pairing;
+
+        DiscoveryCandidate(NsdServiceInfo service, boolean pairing) {
+            this.service = service;
+            this.pairing = pairing;
+        }
+    }
+
+    private void queueService(NsdServiceInfo service, boolean pairing) {
+        synchronized (pendingServices) {
+            if (closed || pendingServices.size() >= 64) return;
+            pendingServices.add(new DiscoveryCandidate(service, pairing));
+        }
+        resolveNextService();
+    }
 
     private synchronized void discoverMobileInterface() {
         if (closed || mobileDiscovery != null) return;
@@ -70,14 +96,14 @@ final class AdbTunnel implements AutoCloseable {
     }
 
     private void resolveNextService() {
-        NsdServiceInfo service;
+        DiscoveryCandidate candidate;
         synchronized (pendingServices) {
             if (closed || resolving || pendingServices.isEmpty()) return;
             resolving = true;
-            service = pendingServices.remove();
+            candidate = pendingServices.remove();
         }
         try {
-            discovery.resolveService(service, new NsdManager.ResolveListener() {
+            discovery.resolveService(candidate.service, new NsdManager.ResolveListener() {
                 private void complete() {
                     synchronized (pendingServices) { resolving = false; }
                     resolveNextService();
@@ -89,8 +115,13 @@ final class AdbTunnel implements AutoCloseable {
                         if (host == null || closed) return;
                         for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
                             if (Collections.list(network.getInetAddresses()).contains(host)) {
-                                discoveredPort = value.getPort();
-                                discoveredService = value.getServiceName();
+                                if (candidate.pairing) {
+                                    discoveredPairingPort = value.getPort();
+                                    discoveredPairingService = value.getServiceName();
+                                } else {
+                                    discoveredPort = value.getPort();
+                                    discoveredService = value.getServiceName();
+                                }
                                 break;
                             }
                         }
@@ -109,6 +140,12 @@ final class AdbTunnel implements AutoCloseable {
         mobileRecovery = new MobileAdbRecovery(context, audit, this::discoverMobileInterface);
         discovery = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
         discovery.discoverServices("_adb-tls-connect._tcp.", NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+        try {
+            discovery.discoverServices("_adb-tls-pairing._tcp.", NsdManager.PROTOCOL_DNS_SD,
+                    pairingDiscoveryListener);
+        } catch (RuntimeException error) {
+            audit.accept("ADB pairing discovery unavailable: " + error.getClass().getSimpleName());
+        }
     }
 
     private int listenerPort() throws Exception {
@@ -185,6 +222,7 @@ final class AdbTunnel implements AutoCloseable {
                 .put("wirelessRestarted", repair && canRepair && initialPort == 0 && wirelessBefore)
                 .put("mobileRecoveryRunning", mobileRecovery.isRunning())
                 .put("mobileRecoveryError", mobileRecovery.lastError() == null ? JSONObject.NULL : mobileRecovery.lastError())
+                .put("pairingPort", discoveredPairingPort)
                 .put("canRepair", canRepair).put("ready", port > 0);
     }
 
@@ -195,8 +233,10 @@ final class AdbTunnel implements AutoCloseable {
                 if (sockets.size() >= 4) throw new IllegalStateException("ADB tunnel capacity reached");
                 // Tunnel creation already repairs the listener. Native SDK
                 // reconnects must fail promptly rather than queue repair loops.
-                int port = status(false).getInt("port");
-                if (port == 0) throw new IllegalStateException("ADB wireless listener is not running");
+                boolean pairing = "pairing".equals(args.optString("purpose"));
+                int port = pairing ? discoveredPairingPort : status(false).getInt("port");
+                if (port == 0) throw new IllegalStateException(pairing
+                        ? "ADB pairing service is not running" : "ADB wireless listener is not running");
                 SocketChannel channel = SocketChannel.open();
                 Socket socket = channel.socket();
                 try {
@@ -251,6 +291,7 @@ final class AdbTunnel implements AutoCloseable {
         mobileRecovery.close();
         synchronized (pendingServices) { pendingServices.clear(); }
         try { discovery.stopServiceDiscovery(discoveryListener); } catch (Exception ignored) { }
+        try { discovery.stopServiceDiscovery(pairingDiscoveryListener); } catch (Exception ignored) { }
         if (mobileDiscovery != null) {
             try { discovery.stopServiceDiscovery(mobileDiscovery); } catch (Exception ignored) { }
         }
