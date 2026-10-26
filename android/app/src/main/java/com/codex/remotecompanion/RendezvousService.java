@@ -83,6 +83,7 @@ public final class RendezvousService extends Service {
                 .put("androidSdk", Build.VERSION.SDK_INT)
                 .put("androidRelease", Build.VERSION.RELEASE)
                 .put("accessibility", AccessibilityReadiness.diagnostics(context))
+                .put("tvRecovery", TvRecoveryDiagnostics.inspect(context))
                 .put("relayEndpoint", RelayPreferences.endpoint(context))
                 .put("serviceStatus", status)
                 .put("userUnlocked", users != null && users.isUserUnlocked())
