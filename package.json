@@ -1,6 +1,6 @@
 {
   "name": "android-remote-lab",
-  "version": "0.1.2-tv.0",
+  "version": "0.1.2-tv.1",
   "description": "Secure on-demand control and physical-device testing for Android through a Windows relay",
   "license": "MIT",
   "author": "heelee912",

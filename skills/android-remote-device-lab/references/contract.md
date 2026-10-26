@@ -27,6 +27,7 @@ Companion 1.1.3+ reports `screenInteractive`, `secureKeyguardLocked`, and `userU
 - `READY`: relay, Funnel, process supervision, and enrolled phone are healthy.
 - `PHONE_LOCKED`: Android reports a secure keyguard. Background ADB, files and diagnostics remain available according to their own transport and Android permissions.
 - `BACKGROUND_READY`: the authenticated Companion and infrastructure are ready for background ownership. Screen and Accessibility state do not gate background commands. This does not prove the configured ADB transport is online or unlock encrypted storage.
+- Companion 1.2.11+ also accepts authenticated APK installation and install-status in a background session while Accessibility is unavailable. Android's installer may still require a TV-remote confirmation.
 - `ACCESSIBILITY_UNAVAILABLE`: the Companion is connected but its Accessibility service is not ready.
 - `COMPANION_UPDATE_REQUIRED`: readiness is reported by a Companion older than the minimum hardened protocol version. Upgrade before control.
 - `CONNECTED_UNVERIFIED`: an authenticated connection has not supplied readiness or version data yet, or an older Companion lacks that telemetry. The relay requests the first pong immediately; repair preflight and device commands wait for fresh data before selecting capabilities. A missing version alone is distinct from an installed version below the supported minimum.

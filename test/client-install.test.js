@@ -19,7 +19,9 @@ const { spawn } = require('node:child_process');
   const server = http.createServer((req, res) => {
     let body = ''; req.on('data', b => body += b); req.on('end', () => {
       if (req.url === '/status') return res.end(JSON.stringify({ ok: true, selectedDeviceId: deviceId,
-        active: { deviceId }, controlLease: { owner: 'install-test', expiresAt: new Date(Date.now() + 3600000).toISOString() } }));
+        active: { deviceId, accessibilityReady: false, screenInteractive: false },
+        controlLease: { owner: 'install-test', background: true,
+          expiresAt: new Date(Date.now() + 3600000).toISOString() } }));
       const command = JSON.parse(body);
       assert.equal(command.owner, 'install-test');
       assert.equal(command.deviceId, deviceId);

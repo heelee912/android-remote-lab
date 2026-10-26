@@ -123,7 +123,9 @@ async function command(name, args = {}, timeoutMs = 20_000, maintainDisplayLease
     let submitted = false;
     try {
       if (maintainDisplayLease) await ensureControlLease(name === 'wake',
-        ['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping', 'adb_tunnel_status'].includes(name), Math.max(1, reconnectDeadline - Date.now()));
+        ['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping', 'adb_tunnel_status',
+          'install_begin', 'install_chunk', 'install_commit', 'install_status'].includes(name),
+        Math.max(1, reconnectDeadline - Date.now()));
       else if (!commandDeviceId) commandDeviceId = (await api('GET', '/status')).selectedDeviceId;
       submitted = true;
       return await api('POST', '/command', { command: name, args, timeoutMs, owner, deviceId: commandDeviceId }, apiTimeoutMs);

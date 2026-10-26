@@ -367,6 +367,15 @@ async function main() {
     second.socket.write(frame({ type: 'response', requestId: diagnosticCommand.requestId, seq: diagnosticCommand.seq,
       ok: true, result: { screenInteractive: false } }));
     assert.equal((await backgroundDiagnostic).status, 200);
+    const backgroundInstall = request(apiPort, token, 'POST', '/command', {
+      owner, command: 'install_status', args: { uploadId: '' },
+    });
+    const installCommand = await second.next();
+    assert.equal(installCommand.command, 'install_status',
+      'APK status must reach Companion without upgrading a background lease');
+    second.socket.write(frame({ type: 'response', requestId: installCommand.requestId,
+      seq: installCommand.seq, ok: true, result: { status: 'none' } }));
+    assert.equal((await backgroundInstall).status, 200);
     const blockedBackgroundOwner = await request(apiPort, token, 'POST', '/control/start', {
       owner: 'different-thread', background: true,
     });

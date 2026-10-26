@@ -252,12 +252,16 @@ For multiple devices, inspect `arlab device devices --json` and run `arlab selec
 
 The Android TV preview is published separately from the stable `Latest` release.
 Install the matching PC package and signed Companion APK from the
-[`companion-tv-1.2.10` prerelease](https://github.com/heelee912/android-remote-lab/releases/tag/companion-tv-1.2.10).
+[`companion-tv-1.2.11` prerelease](https://github.com/heelee912/android-remote-lab/releases/tag/companion-tv-1.2.11).
 Companion 1.2.10+ appears in an Android TV app launcher and accepts a validated
 internet connection over Ethernet or Wi-Fi. The box must allow APK installation;
 the installer may ask to allow that file browser as an installation source.
 Android 13+ can also restrict a sideloaded app's Accessibility service until its
 app-info menu allows restricted settings.
+Companion 1.2.11+ reports its Android version and Accessibility registration,
+enabled, and bound states in `arlab device diagnostics`. APK installation and
+install-status use a background session even when Accessibility is disabled;
+Android may still require confirmation on the TV screen.
 
 After installation, enter the PC relay's DNS host and port in Companion, enable
 its Accessibility service, and compare the full displayed Device ID with the

@@ -12,6 +12,7 @@ import android.content.pm.PackageInfo;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.UserManager;
 import android.util.Base64;
@@ -66,6 +67,10 @@ public final class RendezvousService extends Service {
         appendLog(context, "boot event: " + event);
     }
 
+    static void appendAccessibilityEvent(Context context, String event) {
+        appendLog(context, "accessibility " + event);
+    }
+
     static JSONObject diagnostics(Context context) throws Exception {
         ConnectivityManager connectivity = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
         Network active = connectivity.getActiveNetwork();
@@ -75,6 +80,9 @@ public final class RendezvousService extends Service {
         return new JSONObject()
                 .put("versionName", packageInfo.versionName)
                 .put("versionCode", packageInfo.getLongVersionCode())
+                .put("androidSdk", Build.VERSION.SDK_INT)
+                .put("androidRelease", Build.VERSION.RELEASE)
+                .put("accessibility", AccessibilityReadiness.diagnostics(context))
                 .put("relayEndpoint", RelayPreferences.endpoint(context))
                 .put("serviceStatus", status)
                 .put("userUnlocked", users != null && users.isUserUnlocked())

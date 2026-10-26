@@ -34,10 +34,12 @@ public final class ControlAccessibilityService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         instance = this;
+        RendezvousService.appendAccessibilityEvent(this, "connected");
     }
 
     @Override
     public void onDestroy() {
+        RendezvousService.appendAccessibilityEvent(this, "destroyed");
         if (instance == this) {
             instance = null;
         }

@@ -31,6 +31,26 @@ final class CommandDispatcher {
                     .put("leaseRemainingMillis", displayLease.remainingMillis());
         }
 
+        if (command.startsWith("install_")) {
+            assertUserStorageReady();
+            assertConnectionReady();
+            switch (command) {
+                case "install_begin":
+                    return ApkInstaller.begin(context, args.getLong("sizeBytes"),
+                            args.getString("sha256"), args.optString("fileName", "app.apk"));
+                case "install_chunk":
+                    return ApkInstaller.append(context, args.getString("uploadId"),
+                            args.getLong("offset"), args.getString("base64"),
+                            args.getString("chunkSha256"));
+                case "install_commit":
+                    return ApkInstaller.commit(context, args.getString("uploadId"));
+                case "install_status":
+                    return ApkInstaller.status(context, args.optString("uploadId", ""));
+                default:
+                    throw new IllegalArgumentException("Unsupported command: " + command);
+            }
+        }
+
         if ("wake".equals(command)) {
             // Display-only wake never dismisses or authenticates any keyguard.
             assertConnectionReady();
@@ -110,23 +130,6 @@ final class CommandDispatcher {
                         .put("activeWindowBefore", before)
                         .put("activeWindowAfter", after);
             }
-            case "install_begin":
-                return ApkInstaller.begin(
-                        context,
-                        args.getLong("sizeBytes"),
-                        args.getString("sha256"),
-                        args.optString("fileName", "app.apk"));
-            case "install_chunk":
-                return ApkInstaller.append(
-                        context,
-                        args.getString("uploadId"),
-                        args.getLong("offset"),
-                        args.getString("base64"),
-                        args.getString("chunkSha256"));
-            case "install_commit":
-                return ApkInstaller.commit(context, args.getString("uploadId"));
-            case "install_status":
-                return ApkInstaller.status(context, args.optString("uploadId", ""));
             default:
                 throw new IllegalArgumentException("Unsupported command: " + command);
         }
@@ -155,13 +158,17 @@ final class CommandDispatcher {
     }
 
     private void assertTransportReady() {
-        UserManager users = (UserManager) context.getSystemService(Context.USER_SERVICE);
-        if (users == null || !users.isUserUnlocked()) {
-            throw new SecurityException("Android user storage is locked");
-        }
+        assertUserStorageReady();
         assertConnectionReady();
         if (ControlAccessibilityService.getInstance() == null) {
             throw new IllegalStateException("Accessibility service is not enabled or not bound");
+        }
+    }
+
+    private void assertUserStorageReady() {
+        UserManager users = (UserManager) context.getSystemService(Context.USER_SERVICE);
+        if (users == null || !users.isUserUnlocked()) {
+            throw new SecurityException("Android user storage is locked");
         }
     }
 

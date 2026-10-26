@@ -256,7 +256,7 @@ switch (command) {
         privateFiles: 'Android shell permissions; run-as/root required for protected app data',
         privateFileAccess: { shell: true, runAs: '--as-package PACKAGE (debuggable app required)',
           root: '--as-root (existing su authorization required; does not root the phone)' } },
-      background: { commands: ['adb', 'files', 'diagnostics', 'adb-status'], automatic: true,
+      background: { commands: ['adb', 'files', 'diagnostics', 'adb-status', 'install', 'install-status'], automatic: true,
         session: 'arlab session start --background', preflight: 'arlab doctor --background --json',
         readiness: 'BACKGROUND_READY', uiReadinessSeparate: true } }, json);
     break;

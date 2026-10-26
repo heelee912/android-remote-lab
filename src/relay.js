@@ -748,7 +748,9 @@ const api = http.createServer(async (request, response) => {
         // Direct API clients also upgrade before UI commands. The failed upgrade
         // leaves background ownership intact, so a locked screen cannot stop ADB.
         const lease = controlLeases.get(deviceId);
-        if (lease.background && !['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping', 'release_lease', 'adb_tunnel_status'].includes(body.command)) {
+        if (lease.background && !['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping',
+          'release_lease', 'adb_tunnel_status', 'install_begin', 'install_chunk',
+          'install_commit', 'install_status'].includes(body.command)) {
           const upgraded = await startControlLease(deviceId, lease.expiresAt - Date.now(), body.owner,
             false, body.command === 'wake');
           if (!upgraded.ok) return sendJson(response, 409, upgraded);
