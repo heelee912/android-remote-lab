@@ -32,6 +32,9 @@
     <!-- launch resolves phone and TV launcher activities on Android 11 and newer. -->
     <queries>
         <intent>
+            <action android:name="android.settings.SHOW_RESTRICTED_SETTING_DIALOG" />
+        </intent>
+        <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>

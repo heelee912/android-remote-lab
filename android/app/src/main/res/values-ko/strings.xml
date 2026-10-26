@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">Remote Companion</string>
+    <string name="accessibility_description">인증된 원격 세션에서 화면을 확인하고 요청한 동작을 수행합니다.</string>
+    <string name="notification_channel">원격 연결</string>
+    <string name="notification_title">Remote Companion 준비됨</string>
+    <string name="notification_text">인증된 중계 연결을 기다리는 중</string>
+    <string name="description">PC 중계를 통한 실제 기기 원격 테스트입니다. Wi-Fi, 모바일 데이터 또는 기존 VPN으로 연결합니다.</string>
+    <string name="relay_host_hint">중계 DNS 호스트</string>
+    <string name="relay_port_hint">TLS 중계 포트</string>
+    <string name="save_and_connect">저장하고 연결</string>
+    <string name="open_accessibility">접근성 설정 열기</string>
+    <string name="open_accessibility_description">Remote Companion 접근성 설정 열기</string>
+    <string name="open_restricted_settings">Android 제한된 설정 안내 열기</string>
+    <string name="restricted_settings_unavailable">이 TV에서 제한된 설정 안내를 열 수 없습니다.</string>
+    <string name="open_app_info">Remote Companion 앱 정보 열기</string>
+    <string name="app_info_unavailable">이 TV에서 앱 정보 화면을 열 수 없습니다.</string>
+    <string name="open_install_permission">테스트 앱 설치 허용</string>
+    <string name="open_install_permission_description">테스트 APK 설치를 위한 Android 권한 설정 열기</string>
+    <string name="configuration_error">설정 오류: %1$s</string>
+    <string name="setup_error">초기 설정 오류: %1$s</string>
+    <string name="status_format">중계 주소\n%1$s\n\n기기 ID\n%2$s\n\n접근성\n%3$s\n\n연결\n%4$s</string>
+    <string name="enabled">사용 중</string>
+    <string name="not_enabled">사용 안 함</string>
+</resources>

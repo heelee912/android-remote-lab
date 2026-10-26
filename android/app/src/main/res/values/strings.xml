@@ -10,6 +10,10 @@
     <string name="save_and_connect">Save and connect</string>
     <string name="open_accessibility">Open accessibility settings</string>
     <string name="open_accessibility_description">Open accessibility settings for Remote Companion</string>
+    <string name="open_restricted_settings">Review Android restricted settings</string>
+    <string name="restricted_settings_unavailable">This TV does not provide the Android restricted settings notice.</string>
+    <string name="open_app_info">Open Remote Companion app info</string>
+    <string name="app_info_unavailable">This TV does not provide an app info screen.</string>
     <string name="open_install_permission">Allow test app installs</string>
     <string name="open_install_permission_description">Open Android permission settings for test APK installation</string>
     <string name="configuration_error">Configuration error: %1$s</string>

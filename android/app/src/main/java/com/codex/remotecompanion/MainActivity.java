@@ -4,11 +4,13 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Process;
 import android.provider.Settings;
 import android.net.Uri;
 import android.text.InputType;
@@ -88,6 +90,20 @@ public final class MainActivity extends Activity {
         accessibility.setOnClickListener(view -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         content.addView(accessibility, matchWrap());
 
+        if (television && Build.VERSION.SDK_INT >= 33) {
+            Button restrictedSettings = new Button(this);
+            restrictedSettings.setText(R.string.open_restricted_settings);
+            restrictedSettings.setTextSize(22);
+            restrictedSettings.setOnClickListener(view -> openRestrictedSettings());
+            content.addView(restrictedSettings, matchWrap());
+
+            Button appInfo = new Button(this);
+            appInfo.setText(R.string.open_app_info);
+            appInfo.setTextSize(22);
+            appInfo.setOnClickListener(view -> openAppInfo());
+            content.addView(appInfo, matchWrap());
+        }
+
         Button installs = new Button(this);
         installs.setText(R.string.open_install_permission);
         if (television) installs.setTextSize(22);
@@ -122,6 +138,37 @@ public final class MainActivity extends Activity {
             refresh();
         } catch (RuntimeException error) {
             status.setText(getString(R.string.configuration_error, error.getMessage()));
+        }
+    }
+
+    private void openRestrictedSettings() {
+        Intent notice = new Intent("android.settings.SHOW_RESTRICTED_SETTING_DIALOG")
+                .putExtra(Intent.EXTRA_PACKAGE_NAME, getPackageName())
+                .putExtra(Intent.EXTRA_UID, Process.myUid());
+        try {
+            ResolveInfo destination = getPackageManager().resolveActivity(
+                    notice, PackageManager.MATCH_DEFAULT_ONLY);
+            if (destination == null || destination.activityInfo == null
+                    || (destination.activityInfo.applicationInfo.flags
+                    & (android.content.pm.ApplicationInfo.FLAG_SYSTEM
+                    | android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0) {
+                status.setText(getString(R.string.restricted_settings_unavailable));
+                return;
+            }
+            notice.setClassName(destination.activityInfo.packageName, destination.activityInfo.name);
+            startActivity(notice);
+        } catch (RuntimeException error) {
+            status.setText(getString(R.string.restricted_settings_unavailable));
+        }
+    }
+
+    private void openAppInfo() {
+        Intent appInfo = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName()));
+        try {
+            startActivity(appInfo);
+        } catch (RuntimeException error) {
+            status.setText(getString(R.string.app_info_unavailable));
         }
     }
 
