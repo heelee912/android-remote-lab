@@ -156,6 +156,27 @@ test('pairing tunnel opens only the discovered local pairing service', async () 
   /adb-pairing-service-unavailable/);
 });
 
+test('TV remote tunnel targets only the fixed local TV ports without ADB discovery', async () => {
+  for (const [purpose, expectedPort] of [['tv-pairing', 6467], ['tv-control', 6466]]) {
+    const calls = [];
+    const invoke = async (command, args) => {
+      calls.push({ command, args });
+      if (command === 'adb_tunnel_open') return { ok: true, result: { streamId: crypto.randomUUID() } };
+      if (command === 'adb_tunnel_read') return { ok: true, result: { eof: true } };
+      if (command === 'adb_tunnel_close') return { ok: true, result: { closed: true } };
+      throw new Error(`Unexpected command: ${command}`);
+    };
+    const tunnel = await createAdbTunnel(invoke, () => true, () => {}, { purpose });
+    const socket = net.connect({ host: '127.0.0.1', port: Number(tunnel.serial.split(':')[1]) });
+    try {
+      await once(socket, 'end');
+      assert.equal(tunnel.listenerPort, expectedPort);
+      assert.deepEqual(calls.find(call => call.command === 'adb_tunnel_open')?.args, { purpose });
+      assert.equal(calls.some(call => call.command === 'adb_tunnel_status'), false);
+    } finally { socket.destroy(); tunnel.close(); }
+  }
+});
+
 test('a failed native reconnect retires the endpoint instead of repeatedly repairing the phone', async () => {
   let opens = 0;
   const tunnel = await createAdbTunnel(async command => {

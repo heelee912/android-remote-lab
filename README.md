@@ -252,7 +252,7 @@ For multiple devices, inspect `arlab device devices --json` and run `arlab selec
 
 The Android TV preview is published separately from the stable `Latest` release.
 Install the matching PC package and signed Companion APK from the
-[`companion-tv-1.2.11` prerelease](https://github.com/heelee912/android-remote-lab/releases/tag/companion-tv-1.2.11).
+[`v1.2.20-tv` release](https://github.com/heelee912/android-remote-lab/releases/tag/v1.2.20-tv).
 Companion 1.2.10+ appears in an Android TV app launcher and accepts a validated
 internet connection over Ethernet or Wi-Fi. The box must allow APK installation;
 the installer may ask to allow that file browser as an installation source.
@@ -262,6 +262,24 @@ Companion 1.2.11+ reports its Android version and Accessibility registration,
 enabled, and bound states in `arlab device diagnostics`. APK installation and
 install-status use a background session even when Accessibility is disabled;
 Android may still require confirmation on the TV screen.
+
+When Android TV exposes Remote Service v2, pair the PC remote certificate once
+using the code on the TV:
+
+```powershell
+arlab doctor --repair --background --device <tv-device-id> --json
+arlab tv pair --device <tv-device-id>
+arlab tv press home --device <tv-device-id>
+arlab session stop --device <tv-device-id>
+```
+
+Companion 1.2.20+ carries the TV remote connection through its existing relay,
+so the box needs no public IP or inbound router rule. The PC stores its remote
+certificate and the TV certificate pin in local runtime state, not in this
+repository. Remote keys work without Accessibility or ADB. They do not supply
+screenshots or native shell commands; verify the visible action on the TV.
+`arlab tv pair --host TV_ADDRESS --device <tv-device-id>` is an explicit direct
+fallback for a reachable TV before its Companion and PC relay are updated.
 
 After installation, enter the PC relay's DNS host and port in Companion, enable
 its Accessibility service, and compare the full displayed Device ID with the

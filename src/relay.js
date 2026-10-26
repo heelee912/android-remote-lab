@@ -14,6 +14,7 @@ const { createAdbRouteSelection } = require('./adb-route.js');
 if (process.argv[2]) process.env.ANDROID_REMOTE_LAB_CONFIG = process.argv[2];
 const config = loadConfig();
 const adbTunnels = new Map();
+const tvTunnels = new Map();
 const selectAdbRoute = createAdbRouteSelection();
 const adbOperationTimeoutMs = 30_000;
 
@@ -178,6 +179,32 @@ async function tunneledAdbConfig(deviceId, owner, request = {}) {
   return { ...config, systemInput: { ...config.systemInput, devices: {
     ...config.systemInput.devices, [deviceId]: { ...binding, serial: tunnel.serial, route: 'companion-tunnel' },
   } } };
+}
+
+async function openTvRemoteTunnel(deviceId, owner, args) {
+  const purpose = args?.purpose;
+  if (!['tv-pairing', 'tv-control'].includes(purpose)) throw new Error('tv-remote-tunnel-purpose-required');
+  const connection = connections.get(deviceId);
+  if (!connection || connection.socket.destroyed || Number(connection.versionCode || 0) < 36) {
+    throw new Error('tv-remote-tunnel-companion-update-required');
+  }
+  const id = crypto.randomUUID();
+  const owns = () => ownerControlsDevice(deviceId, owner)
+    && connections.get(deviceId) === connection && !connection.socket.destroyed;
+  const tunnel = await createAdbTunnel(
+    (command, input) => invokeCommand(deviceId, command, input, adbOperationTimeoutMs),
+    owns, () => tvTunnels.delete(id), { purpose });
+  tvTunnels.set(id, { tunnel, deviceId, owner });
+  return { tunnelId: id, host: '127.0.0.1', port: Number(tunnel.serial.split(':')[1]) };
+}
+
+function closeTvRemoteTunnel(deviceId, owner, args) {
+  const record = tvTunnels.get(args?.tunnelId);
+  if (!record || record.deviceId !== deviceId || record.owner !== owner) {
+    throw new Error('tv-remote-tunnel-not-owned');
+  }
+  record.tunnel.close();
+  return { closed: true };
 }
 
 async function executeSystemInput(deviceId, owner, args) {
@@ -630,6 +657,9 @@ function stopControlLease(deviceId, releaseDevice, reason) {
   const previous = controlLeases.get(deviceId);
   if (previous?.timer) clearTimeout(previous.timer);
   controlLeases.delete(deviceId);
+  for (const record of tvTunnels.values()) {
+    if (record.deviceId === deviceId) record.tunnel.close();
+  }
   if (previous) log(`control lease stopped device=${deviceId} reason=${reason}`);
   if (releaseDevice && previous && !previous.background && connections.has(deviceId)) {
     return invokeCommand(deviceId, 'release_lease', {}, 10_000).catch(() => {});
@@ -751,6 +781,7 @@ const api = http.createServer(async (request, response) => {
         if (lease.background && !['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping',
           'release_lease', 'adb_tunnel_status', 'tv_remote_status',
           'tv_remote_pair_start', 'tv_remote_pair_finish', 'tv_remote_press',
+          'tv_remote_tunnel_open', 'tv_remote_tunnel_close',
           'install_begin', 'install_chunk',
           'install_commit', 'install_status'].includes(body.command)) {
           const upgraded = await startControlLease(deviceId, lease.expiresAt - Date.now(), body.owner,
@@ -771,6 +802,10 @@ const api = http.createServer(async (request, response) => {
               && !connections.get(deviceId).socket.destroyed)) }
           : body.command === 'system_input'
           ? await executeSystemInput(deviceId, body.owner, body.args)
+          : body.command === 'tv_remote_tunnel_open'
+          ? { ok: true, result: await openTvRemoteTunnel(deviceId, body.owner, body.args) }
+          : body.command === 'tv_remote_tunnel_close'
+          ? { ok: true, result: closeTvRemoteTunnel(deviceId, body.owner, body.args) }
           : await invokeCommand(deviceId, body.command, body.args, body.timeoutMs);
         const tunnel = adbTunnels.get(deviceId);
         if (tunnel?.owner === body.owner) {

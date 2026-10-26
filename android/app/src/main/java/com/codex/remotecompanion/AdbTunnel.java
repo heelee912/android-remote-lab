@@ -21,7 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/** Carries ADB bytes only to this phone's loopback debugging service. */
+/** Carries selected ADB or TV remote bytes only to this device's loopback services. */
 final class AdbTunnel implements AutoCloseable {
     private final Context context;
     private final MobileAdbRecovery mobileRecovery;
@@ -233,8 +233,15 @@ final class AdbTunnel implements AutoCloseable {
                 if (sockets.size() >= 4) throw new IllegalStateException("ADB tunnel capacity reached");
                 // Tunnel creation already repairs the listener. Native SDK
                 // reconnects must fail promptly rather than queue repair loops.
-                boolean pairing = "pairing".equals(args.optString("purpose"));
-                int port = pairing ? discoveredPairingPort : status(false).getInt("port");
+                String purpose = args.optString("purpose", "connect");
+                boolean pairing = "pairing".equals(purpose);
+                boolean tvPairing = "tv-pairing".equals(purpose);
+                boolean tvControl = "tv-control".equals(purpose);
+                if (!pairing && !tvPairing && !tvControl && !"connect".equals(purpose)) {
+                    throw new IllegalArgumentException("Unsupported local tunnel purpose");
+                }
+                int port = tvPairing ? 6467 : tvControl ? 6466
+                        : pairing ? discoveredPairingPort : status(false).getInt("port");
                 if (port == 0) throw new IllegalStateException(pairing
                         ? "ADB pairing service is not running" : "ADB wireless listener is not running");
                 SocketChannel channel = SocketChannel.open();

@@ -126,6 +126,7 @@ async function command(name, args = {}, timeoutMs = 20_000, maintainDisplayLease
       if (maintainDisplayLease) await ensureControlLease(name === 'wake',
         ['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping', 'adb_tunnel_status',
           'tv_remote_status', 'tv_remote_pair_start', 'tv_remote_pair_finish', 'tv_remote_press',
+          'tv_remote_tunnel_open', 'tv_remote_tunnel_close',
           'install_begin', 'install_chunk', 'install_commit', 'install_status'].includes(name),
         Math.max(1, reconnectDeadline - Date.now()));
       else if (!commandDeviceId) commandDeviceId = (await api('GET', '/status')).selectedDeviceId;

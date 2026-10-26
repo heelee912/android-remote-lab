@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { doctor } from '../src/doctor.mjs';
 
 const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+if (!process.env.ANDROID_REMOTE_LAB_OWNER && !process.env.CODEX_THREAD_ID) {
+  process.env.ANDROID_REMOTE_LAB_OWNER = `interactive-shell-${process.ppid}`;
+}
 
 function fail(message, code = 1) {
   process.stderr.write(`${message}\n`);
@@ -81,6 +84,8 @@ function usage() {
     `      adb-pair SIX_DIGIT_CODE [--json] (selected device's pairing screen must be open)\n` +
     `      adb-bind [--json] (resume pairing without a new code)\n` +
     `      tv-remote-pair, tv-remote-confirm SIX_HEX_CODE, tv-remote-press KEY\n` +
+    `  arlab tv pair --device DEVICE_ID (enter the TV code on stdin)\n` +
+    `  arlab tv press KEY --device DEVICE_ID (paired TV Remote Service)\n` +
     `      adb/files accept --adb-route auto|direct|companion before --\n` +
     `      files list|stat|read REMOTE_PATH; files pull REMOTE LOCAL; files push LOCAL REMOTE\n` +
     `  arlab skill install\n`);
@@ -116,6 +121,19 @@ switch (command) {
     break;
   }
   case 'device': runNode('src/adapter.mjs', args); break;
+  case 'tv': {
+    const deviceId = process.env.ANDROID_REMOTE_LAB_DEVICE_ID;
+    if (!deviceId) fail('tv requires --device DEVICE_ID', 2);
+    const preflight = await doctor({ repair: true, background: true });
+    if (!preflight.ok || preflight.selectedDeviceId !== deviceId) {
+      fail(`TV target is not ready: ${preflight.state || 'target-mismatch'}`);
+    }
+    try {
+      const { runTv } = await import('./arlab-tv.mjs');
+      await runTv(args, deviceId);
+    } catch (error) { fail(error.message); }
+    break;
+  }
   case 'skill':
     if (args[0] === 'install') installSkill();
     else fail('skill requires install', 2);

@@ -38,7 +38,9 @@ async function provisionTcpListener(initial, enableTcp, inspect, wait = pause) {
 // The listener exists only on loopback, and only during the requesting owner's
 // device lease. The existing signed Companion connection carries every byte.
 async function createAdbTunnel(invoke, ownsDevice, onClose = () => {}, options = {}) {
-  const purpose = options.purpose === 'pairing' ? 'pairing' : 'connect';
+  const purpose = ['pairing', 'tv-pairing', 'tv-control'].includes(options.purpose)
+    ? options.purpose : 'connect';
+  const tvPort = purpose === 'tv-pairing' ? 6467 : purpose === 'tv-control' ? 6466 : 0;
   const connections = new Set();
   const streams = new Set();
   let closed = false;
@@ -55,7 +57,7 @@ async function createAdbTunnel(invoke, ownsDevice, onClose = () => {}, options =
     if (!response.ok) throw new Error(response.error?.message || response.error?.code || 'adb-tunnel-operation-failed');
     return response.result;
   };
-  let status = purpose === 'pairing'
+  let status = tvPort ? { chunkBytes: 128 * 1024 } : purpose === 'pairing'
     ? await call('adb_tunnel_status')
     : await waitForAdbListener(await call('adb_tunnel_status', { repair: true }),
       () => call('adb_tunnel_status'));
@@ -65,7 +67,7 @@ async function createAdbTunnel(invoke, ownsDevice, onClose = () => {}, options =
       status = await call('adb_tunnel_status');
     }
   }
-  const listenerPort = purpose === 'pairing' ? status.pairingPort : status.port || status.tlsPort;
+  const listenerPort = tvPort || (purpose === 'pairing' ? status.pairingPort : status.port || status.tlsPort);
   if (purpose === 'pairing' && (!Number.isInteger(listenerPort) || listenerPort < 1 || listenerPort > 65535)) {
     throw new Error('adb-pairing-service-unavailable');
   }
@@ -135,7 +137,7 @@ async function createAdbTunnel(invoke, ownsDevice, onClose = () => {}, options =
       if (streamId) releaseStream(streamId);
     });
     (async () => {
-      const opened = await call('adb_tunnel_open', purpose === 'pairing' ? { purpose } : {});
+      const opened = await call('adb_tunnel_open', purpose === 'connect' ? {} : { purpose });
       streamId = opened.streamId;
       if (typeof streamId !== 'string' || !/^[a-f0-9-]{36}$/.test(streamId)) throw new Error('adb-tunnel-invalid-stream');
       streams.add(streamId);
@@ -197,7 +199,7 @@ async function createAdbTunnel(invoke, ownsDevice, onClose = () => {}, options =
   watchdog.unref();
   return { serial: `127.0.0.1:${server.address().port}`, close,
     listenerPort,
-    listenerType: purpose === 'pairing' ? 'pairing' : status.listenerType || 'tls',
+    listenerType: purpose === 'pairing' ? 'pairing' : tvPort ? purpose : status.listenerType || 'tls',
     get lastError() { return lastError; },
     get statistics() { return { ...statistics }; },
     instanceId: crypto.randomUUID(), get closed() { return closed; } };
