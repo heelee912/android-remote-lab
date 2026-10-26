@@ -128,6 +128,13 @@ function deviceDirectory(deviceId) {
     'AndroidRemoteLab', 'tv-remote-direct', deviceId);
 }
 
+export function tvRemoteConnectionRoute(deviceId) {
+  const recordPath = path.join(deviceDirectory(deviceId), 'pairing.json');
+  if (!fs.existsSync(recordPath)) return null;
+  const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
+  return record.route !== 'companion-tunnel' && record.host ? 'direct' : 'companion-tunnel';
+}
+
 function identity(directory) {
   const saved = path.join(directory, 'client-identity.json');
   if (fs.existsSync(saved)) return JSON.parse(fs.readFileSync(saved, 'utf8'));

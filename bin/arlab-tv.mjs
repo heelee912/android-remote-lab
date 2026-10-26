@@ -4,7 +4,7 @@ import readline from 'node:readline/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { pairTvRemote, pressTvRemote } from '../src/tv-remote-direct.mjs';
+import { pairTvRemote, pressTvRemote, tvRemoteConnectionRoute } from '../src/tv-remote-direct.mjs';
 
 const clientPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/client.js');
 
@@ -56,6 +56,12 @@ export async function runTv(args, deviceId) {
   }
   if (action === 'press') {
     if (rest.length !== 1) throw new Error('tv press requires one supported key');
+    if (tvRemoteConnectionRoute(deviceId) === 'direct') {
+      const result = await pressTvRemote(deviceId, rest[0]);
+      process.stdout.write(`${JSON.stringify({ ok: true, result: { ...result,
+        connectionRoute: 'direct' } }, null, 2)}\n`);
+      return;
+    }
     let tunnel;
     try {
       tunnel = openTunnel('tv-control');

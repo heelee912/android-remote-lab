@@ -278,8 +278,13 @@ so the box needs no public IP or inbound router rule. The PC stores its remote
 certificate and the TV certificate pin in local runtime state, not in this
 repository. Remote keys work without Accessibility or ADB. They do not supply
 screenshots or native shell commands; verify the visible action on the TV.
-`arlab tv pair --host TV_ADDRESS --device <tv-device-id>` is an explicit direct
-fallback for a reachable TV before its Companion and PC relay are updated.
+Some TV Remote Service builds reject connections originating on the TV itself,
+which includes the Companion tunnel. For a TV reachable from the PC, use
+`arlab tv pair --host TV_ADDRESS --device <tv-device-id>` to pair directly.
+`arlab tv press` then uses the saved direct route, including older direct pairing
+records. A direct route requires the PC to reach the TV remote service ports;
+it still checks the paired TV certificate. A successful key dispatch requires
+visible readback before treating the UI action as complete.
 
 After installation, enter the PC relay's DNS host and port in Companion, enable
 its Accessibility service, and compare the full displayed Device ID with the
@@ -301,7 +306,11 @@ the Companion's authenticated connection and saves the verified hardware binding
 in the local runtime config. If it reports `paired: true, bound: false`, use
 `arlab device adb-bind --json` to finish without repeating the pair. Android TV
 firmware can hide or reject Wireless debugging, so native ADB and its behavior
-after a reboot require a test on the physical box.
+after a reboot require a test on the physical box. USB debugging alone does not
+open a network ADB listener. If both the wireless setting and a native listener
+are absent, first provision ADB through an authorized device-specific system
+path or a one-time USB host connection; Companion UI access cannot grant itself
+Android's protected debugging permissions.
 
 Doctor returns `READY` only when Companion `versionCode >= 7` reports both an unlocked keyguard and an active Accessibility service. `PHONE_LOCKED`, `ACCESSIBILITY_UNAVAILABLE`, `COMPANION_UPDATE_REQUIRED`, and `CONNECTED_UNVERIFIED` are non-ready states; the last two require a Companion upgrade.
 
