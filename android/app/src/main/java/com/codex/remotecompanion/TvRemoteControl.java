@@ -2,6 +2,10 @@ package com.codex.remotecompanion;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 
@@ -9,6 +13,8 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.math.BigInteger;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.security.KeyPairGenerator;
@@ -61,6 +67,7 @@ final class TvRemoteControl implements AutoCloseable {
     private boolean lastServerCertificateSeen;
     private boolean lastServerCertificateMatched;
     private String lastControlError = "";
+    private String lastControlRoute = "";
 
     TvRemoteControl(Context context) {
         this.context = context;
@@ -74,12 +81,13 @@ final class TvRemoteControl implements AutoCloseable {
                 .put("lastClientAliasSelected", lastClientAliasSelected)
                 .put("lastServerCertificateSeen", lastServerCertificateSeen)
                 .put("lastServerCertificateMatched", lastServerCertificateMatched)
-                .put("lastControlError", lastControlError);
+                .put("lastControlError", lastControlError)
+                .put("lastControlRoute", lastControlRoute);
     }
 
     synchronized JSONObject beginPairing() throws Exception {
         close();
-        SSLSocket socket = openSocket(PAIRING_PORT, null);
+        SSLSocket socket = openSocket(PAIRING_PORT, null, InetAddress.getByName("127.0.0.1"));
         try {
             TvRemoteWire.send(socket.getOutputStream(), outer(10, TvRemoteWire.join(
                     TvRemoteWire.string(1, "atvremote"),
@@ -158,7 +166,7 @@ final class TvRemoteControl implements AutoCloseable {
         if (keyCode == null) throw new IllegalArgumentException("Unsupported TV remote key");
         String pin = preferences().getString(PINNED_CERTIFICATE, null);
         if (pin == null) throw new IllegalStateException("TV remote is not paired");
-        try (SSLSocket socket = openSocket(CONTROL_PORT, pin)) {
+        try (SSLSocket socket = openControlSocket(pin)) {
             boolean started = false;
             for (int index = 0; index < 16; index++) {
                 TvRemoteWire.Fields message = TvRemoteWire.receive(socket.getInputStream());
@@ -206,6 +214,35 @@ final class TvRemoteControl implements AutoCloseable {
         return description.toString();
     }
 
+    private SSLSocket openControlSocket(String pin) throws Exception {
+        lastControlRoute = "loopback";
+        try {
+            return openSocket(CONTROL_PORT, pin, InetAddress.getByName("127.0.0.1"));
+        } catch (Exception loopbackFailure) {
+            InetAddress address = activeInterfaceAddress();
+            if (address == null) throw loopbackFailure;
+            lastControlRoute = "active-interface";
+            try {
+                return openSocket(CONTROL_PORT, pin, address);
+            } catch (Exception interfaceFailure) {
+                throw new IOException("TV control TLS failed on loopback (" + describe(loopbackFailure)
+                        + ") and active interface (" + describe(interfaceFailure) + ")", interfaceFailure);
+            }
+        }
+    }
+
+    private InetAddress activeInterfaceAddress() {
+        ConnectivityManager connectivity = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        Network active = connectivity == null ? null : connectivity.getActiveNetwork();
+        LinkProperties links = active == null ? null : connectivity.getLinkProperties(active);
+        if (links == null) return null;
+        for (LinkAddress link : links.getLinkAddresses()) {
+            InetAddress address = link.getAddress();
+            if (address instanceof Inet4Address && !address.isLoopbackAddress()) return address;
+        }
+        return null;
+    }
+
     private SharedPreferences preferences() {
         return context.createDeviceProtectedStorageContext()
                 .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
@@ -222,7 +259,7 @@ final class TvRemoteControl implements AutoCloseable {
         }
     }
 
-    private SSLSocket openSocket(int port, String expectedCertificateHash) throws Exception {
+    private SSLSocket openSocket(int port, String expectedCertificateHash, InetAddress address) throws Exception {
         KeyStore keys = clientKeys();
         X509Certificate certificate = (X509Certificate) keys.getCertificate(CERTIFICATE_ALIAS);
         PrivateKey privateKey = (PrivateKey) keys.getKey(CERTIFICATE_ALIAS, null);
@@ -238,9 +275,9 @@ final class TvRemoteControl implements AutoCloseable {
         tls.init(new KeyManager[]{keyManager}, new TrustManager[]{trustManager}, new SecureRandom());
         Socket plain = new Socket();
         try {
-            plain.connect(new InetSocketAddress("127.0.0.1", port), 2_000);
+            plain.connect(new InetSocketAddress(address, port), 2_000);
             SSLSocket socket = (SSLSocket) tls.getSocketFactory().createSocket(
-                    plain, "127.0.0.1", port, true);
+                    plain, address.getHostAddress(), port, true);
             if (port == CONTROL_PORT) {
                 // The TV requests client authentication on this port. TLS 1.2 uses
                 // the RSA signature supported by the certificate already paired.
