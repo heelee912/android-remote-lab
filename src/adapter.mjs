@@ -121,10 +121,11 @@ function snapshot(session, json) {
 function usage() {
   process.stdout.write([
     'agent-device-companion <command> [args] [--session name] [--json]',
-    'Commands: devices, capabilities, connection, diagnostics, adb-status, adb-pair, adb-bind, wake, open, snapshot, press, click, fill, swipe, home, back, app-switcher, screenshot, install, install-status, adb, files, close',
+    'Commands: devices, capabilities, connection, diagnostics, adb-status, adb-pair, adb-bind, tv-remote-status, tv-remote-pair, tv-remote-confirm, tv-remote-press, wake, open, snapshot, press, click, fill, swipe, home, back, app-switcher, screenshot, install, install-status, adb, files, close',
     'ADB: adb [--json] [--timeout-ms 60000] [--output LOCAL_FILE] [--input-file LOCAL_FILE] -- COMMAND [ARGS...]',
     'First remote ADB authorization: adb-pair SIX_DIGIT_CODE (pairing screen must be open on the selected Android device)',
     'Resume after successful pairing: adb-bind (connects through Companion and saves the verified hardware identity)',
+    'Android TV remote: tv-remote-pair, tv-remote-confirm SIX_HEX_CODE, tv-remote-press dpad_center|dpad_up|dpad_down|dpad_left|dpad_right|back|home|enter|menu',
     'Scripts: adb --args-file ARGV_JSON_FILE or adb --shell-file UTF8_SCRIPT_FILE [--json]',
     'Files: files list|stat|read REMOTE_PATH [--output LOCAL_FILE]; files pull REMOTE_PATH LOCAL_PATH; files push LOCAL_PATH REMOTE_PATH',
     'Private file read: files read REMOTE_PATH --as-package PACKAGE or --as-root (existing Android permission required)',
@@ -244,7 +245,7 @@ switch (command) {
     break;
   }
   case 'capabilities':
-    emit({ availableCommands: ['diagnostics', 'adb-status', 'adb-pair', 'adb-bind', 'wake', 'open', 'snapshot', 'press', 'click', 'fill', 'swipe', 'home', 'back', 'app-switcher', 'screenshot', 'install', 'install-status', 'adb', 'files', 'close'],
+    emit({ availableCommands: ['diagnostics', 'adb-status', 'adb-pair', 'adb-bind', 'tv-remote-status', 'tv-remote-pair', 'tv-remote-confirm', 'tv-remote-press', 'wake', 'open', 'snapshot', 'press', 'click', 'fill', 'swipe', 'home', 'back', 'app-switcher', 'screenshot', 'install', 'install-status', 'adb', 'files', 'close'],
       adb: { transport: 'companion-tunnel (Companion 1.2.0+) or configured direct ADB', deviceBinding: 'hardware-serial',
         status: 'adb-status [--repair]', minimumTunnelVersionCode: 16,
         firstRemotePairing: 'adb-pair SIX_DIGIT_CODE; adb-bind resumes a successful pair if binding was interrupted',
@@ -256,7 +257,11 @@ switch (command) {
         privateFiles: 'Android shell permissions; run-as/root required for protected app data',
         privateFileAccess: { shell: true, runAs: '--as-package PACKAGE (debuggable app required)',
           root: '--as-root (existing su authorization required; does not root the phone)' } },
-      background: { commands: ['adb', 'files', 'diagnostics', 'adb-status', 'install', 'install-status'], automatic: true,
+      tvRemote: { requires: 'Android TV Remote Service v2 on the selected TV and one-time on-screen pairing code',
+        commands: ['tv-remote-status', 'tv-remote-pair', 'tv-remote-confirm', 'tv-remote-press'],
+        usesAccessibility: false, usesAdb: false, inputReadback: 'request outcome is dispatch only; verify the TV state separately' },
+      background: { commands: ['adb', 'files', 'diagnostics', 'adb-status', 'install', 'install-status',
+        'tv-remote-status', 'tv-remote-pair', 'tv-remote-confirm', 'tv-remote-press'], automatic: true,
         session: 'arlab session start --background', preflight: 'arlab doctor --background --json',
         readiness: 'BACKGROUND_READY', uiReadinessSeparate: true } }, json);
     break;
@@ -291,6 +296,20 @@ switch (command) {
     break;
   case 'adb-status':
     emit(parseCompanionJson(['adb-status', ...(args.includes('--repair') ? ['--repair'] : [])]), json);
+    break;
+  case 'tv-remote-status':
+  case 'tv-remote-pair':
+    emit(parseCompanionJson([command]), json);
+    break;
+  case 'tv-remote-confirm':
+    if (args.length !== 1 || !/^[0-9A-Fa-f]{6}$/.test(args[0])) fail('tv-remote-confirm requires the six-character code shown on the TV');
+    emit(parseCompanionJson([command, args[0]]), json);
+    break;
+  case 'tv-remote-press':
+    if (args.length !== 1 || !/^(?:dpad_(?:up|down|left|right|center)|back|home|enter|menu)$/.test(args[0])) {
+      fail('tv-remote-press requires a supported TV key');
+    }
+    emit(parseCompanionJson([command, args[0]]), json);
     break;
   case 'open': {
     if (!args[0]) fail('open requires a package or supported app alias');

@@ -229,8 +229,9 @@ public final class RendezvousService extends Service {
             sessionAuthenticated = true;
             appendLog(this, "authenticated session connected for " + deviceId);
             long lastSequence = 0L;
-            try (AdbTunnel adbTunnel = new AdbTunnel(this, message -> appendLog(this, message))) {
-            CommandDispatcher dispatcher = new CommandDispatcher(this, displayLease);
+            try (AdbTunnel adbTunnel = new AdbTunnel(this, message -> appendLog(this, message));
+                 TvRemoteControl tvRemoteControl = new TvRemoteControl(this)) {
+            CommandDispatcher dispatcher = new CommandDispatcher(this, displayLease, tvRemoteControl);
             while (running.get()) {
                 Network currentNetwork = validatedInternetNetwork(this);
                 if (currentNetwork == null || !currentNetwork.equals(relayNetwork)) {

@@ -12,10 +12,16 @@ import org.json.JSONObject;
 final class CommandDispatcher {
     private final Context context;
     private final DisplayLease displayLease;
+    private final TvRemoteControl tvRemoteControl;
 
     CommandDispatcher(Context context, DisplayLease displayLease) {
+        this(context, displayLease, new TvRemoteControl(context));
+    }
+
+    CommandDispatcher(Context context, DisplayLease displayLease, TvRemoteControl tvRemoteControl) {
         this.context = context;
         this.displayLease = displayLease;
+        this.tvRemoteControl = tvRemoteControl;
     }
 
     JSONObject dispatch(String command, JSONObject args) throws Exception {
@@ -29,6 +35,17 @@ final class CommandDispatcher {
         if ("diagnostics".equals(command)) {
             return RendezvousService.diagnostics(context)
                     .put("leaseRemainingMillis", displayLease.remainingMillis());
+        }
+        if (command.startsWith("tv_remote_")) {
+            assertUserStorageReady();
+            assertConnectionReady();
+            switch (command) {
+                case "tv_remote_status": return tvRemoteControl.status();
+                case "tv_remote_pair_start": return tvRemoteControl.beginPairing();
+                case "tv_remote_pair_finish": return tvRemoteControl.finishPairing(args.getString("code"));
+                case "tv_remote_press": return tvRemoteControl.press(args.getString("key"));
+                default: throw new IllegalArgumentException("Unsupported TV remote command");
+            }
         }
 
         if (command.startsWith("install_")) {

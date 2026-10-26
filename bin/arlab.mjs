@@ -80,6 +80,7 @@ function usage() {
     `      adb-status [--repair] [--json]\n` +
     `      adb-pair SIX_DIGIT_CODE [--json] (selected device's pairing screen must be open)\n` +
     `      adb-bind [--json] (resume pairing without a new code)\n` +
+    `      tv-remote-pair, tv-remote-confirm SIX_HEX_CODE, tv-remote-press KEY\n` +
     `      adb/files accept --adb-route auto|direct|companion before --\n` +
     `      files list|stat|read REMOTE_PATH; files pull REMOTE LOCAL; files push LOCAL REMOTE\n` +
     `  arlab skill install\n`);

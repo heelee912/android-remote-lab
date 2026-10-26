@@ -749,7 +749,9 @@ const api = http.createServer(async (request, response) => {
         // leaves background ownership intact, so a locked screen cannot stop ADB.
         const lease = controlLeases.get(deviceId);
         if (lease.background && !['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping',
-          'release_lease', 'adb_tunnel_status', 'install_begin', 'install_chunk',
+          'release_lease', 'adb_tunnel_status', 'tv_remote_status',
+          'tv_remote_pair_start', 'tv_remote_pair_finish', 'tv_remote_press',
+          'install_begin', 'install_chunk',
           'install_commit', 'install_status'].includes(body.command)) {
           const upgraded = await startControlLease(deviceId, lease.expiresAt - Date.now(), body.owner,
             false, body.command === 'wake');

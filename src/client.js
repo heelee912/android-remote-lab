@@ -36,6 +36,7 @@ function usage(error) {
     '  companion-cli.js install-status [uploadId]',
     '  companion-cli.js diagnostics',
     '  companion-cli.js adb-status [--repair]',
+    '  companion-cli.js tv-remote-status|tv-remote-pair|tv-remote-confirm CODE|tv-remote-press KEY',
     '  companion-cli.js adb <jsonRequest>',
     '  companion-cli.js session-start [minutes]',
     '  companion-cli.js session-stop',
@@ -124,6 +125,7 @@ async function command(name, args = {}, timeoutMs = 20_000, maintainDisplayLease
     try {
       if (maintainDisplayLease) await ensureControlLease(name === 'wake',
         ['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping', 'adb_tunnel_status',
+          'tv_remote_status', 'tv_remote_pair_start', 'tv_remote_pair_finish', 'tv_remote_press',
           'install_begin', 'install_chunk', 'install_commit', 'install_status'].includes(name),
         Math.max(1, reconnectDeadline - Date.now()));
       else if (!commandDeviceId) commandDeviceId = (await api('GET', '/status')).selectedDeviceId;
@@ -413,6 +415,16 @@ async function main() {
     case 'wake': result = await command('wake'); break;
     case 'diagnostics': result = await command('diagnostics'); break;
     case 'adb-status': result = await command('adb_tunnel_status', { repair: args.includes('--repair') }); break;
+    case 'tv-remote-status': result = await command('tv_remote_status'); break;
+    case 'tv-remote-pair': result = await command('tv_remote_pair_start'); break;
+    case 'tv-remote-confirm':
+      if (!/^[0-9A-Fa-f]{6}$/.test(args[0] || '')) usage('six-character hexadecimal TV pairing code is required');
+      result = await command('tv_remote_pair_finish', { code: args[0] });
+      break;
+    case 'tv-remote-press':
+      if (!args[0]) usage('TV remote key is required');
+      result = await command('tv_remote_press', { key: args[0] });
+      break;
     case 'session-start': {
       const minutesValue = args.find((value) => !value.startsWith('--'));
       const minutes = minutesValue === undefined ? 60 : finite(minutesValue, 'minutes');
