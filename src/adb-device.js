@@ -226,6 +226,31 @@ async function deviceAdb(config, deviceId, input, stillOwnsDevice, run = runAdbP
       }
     }
   }
+  if ((state.exitCode !== 0 || state.error || state.stdout.trim() !== 'device')
+      && binding.route !== 'companion-tunnel') {
+    // A USB hardware serial may be the original binding even when the same
+    // authorized device is now reachable through a connected TCP transport.
+    const devices = await run(binding.adbPath, ['devices'], { timeoutMs: 10_000 }, stillOwnsDevice);
+    if (!devices.error && devices.exitCode === 0) {
+      const candidates = devices.stdout.split(/\r?\n/)
+        .map(line => line.trim().split(/\s+/))
+        .filter(([serial, status]) => status === 'device' && serial !== binding.serial
+          && /^[A-Za-z0-9_.:-]{1,128}$/.test(serial))
+        .map(([serial]) => serial)
+        .sort((left, right) => Number(left.startsWith('127.')) - Number(right.startsWith('127.')))
+        .slice(0, 8);
+      for (const serial of candidates) {
+        if (!stillOwnsDevice()) throw new Error('adb-control-lease-expired');
+        const identity = await run(binding.adbPath, ['-s', serial, 'shell', 'getprop', 'ro.serialno'],
+          { timeoutMs: 3_000 }, stillOwnsDevice);
+        if (identity.error || identity.exitCode !== 0
+            || identity.stdout.trim() !== binding.hardwareSerial) continue;
+        binding.serial = serial;
+        state = await execute(['get-state']);
+        if (!state.error && state.exitCode === 0 && state.stdout.trim() === 'device') break;
+      }
+    }
+  }
   if (state.exitCode !== 0 || state.error || state.stdout.trim() !== 'device') {
     throw new Error(state.error || 'adb-transport-unavailable');
   }

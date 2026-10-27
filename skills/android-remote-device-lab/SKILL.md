@@ -39,6 +39,7 @@ Start control with `arlab session start` to use the 60-minute default for the se
 Background ADB/file/diagnostic work runs without a hidden app desktop. Accessibility UI work uses the normal display. Rendering and controlling an app while the panel stays dark requires a separate shell-powered display implementation.
 
 On Android TV devices with Remote Service v2, Companion 1.2.20+ can carry the TV remote's TCP bytes through the enrolled TLS connection. Run `arlab tv pair --device DEVICE_ID` once and enter the six-character code shown on that TV. Then use `arlab tv press home|back|dpad_up|dpad_down|dpad_left|dpad_right|dpad_center|enter|menu --device DEVICE_ID`. The paired PC certificate and TV certificate pin stay in the local runtime outside this repository. This route works without a public TV address, Accessibility, or ADB, but provides keys only, not screenshots or native ADB. It uses the selected device's background lease and opens only the TV's loopback ports 6466/6467. A key dispatch is not proof of the resulting screen; obtain a visible readback. `arlab tv pair --host TV_ADDRESS --device DEVICE_ID` is a direct fallback when the TV's remote ports are reachable and its Companion or relay has not yet been updated. The older `arlab device tv-remote-*` commands use Android's Java TLS client and may fail on some TV firmware; inspect their actual result instead of assuming success.
+`arlab tv launch APP_LINK_URL [PACKAGE] --device DEVICE_ID` sends an Android app link through the paired remote service. Omit the package when that service cannot see a sideloaded app, and verify the launched screen separately.
 
 Keep the owner identity stable across every command and cleanup. Prefer a thread-aware execution tool with the same `CODEX_THREAD_ID`; `ANDROID_REMOTE_LAB_OWNER` overrides it. Without either variable, the CLI falls back to the parent process ID, which changes between shell invocations. Before starting control through a threadless tool, explicitly provide the requesting task's stable unique owner on every invocation. A snapshot `--session` name does not set the control owner.
 
@@ -83,6 +84,9 @@ unconfirmed outcomes are never replayed through another route. Use
 `--adb-route companion` on `adb`/`files` to prove the remote path independently
 of LAN/USB availability, or `--adb-route direct` to require direct ADB. Read the
 returned `connectionRoute`; a fast direct transfer alone is not a remote-path test.
+If the saved direct binding is an old USB serial, the relay checks already-connected
+PC ADB transports for the same hardware serial before using one. A matching
+hardware identity is required before the caller command is dispatched.
 Companion 1.2.3+ batches TLS frame headers/bodies with immediate TCP transmission
 and bounded 128 KiB remote chunks. `adb-status` includes PC tunnel byte/call counts
 and the last stream error, without file contents. Public Funnel bandwidth limits

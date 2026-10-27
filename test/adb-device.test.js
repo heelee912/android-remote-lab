@@ -135,6 +135,50 @@ test('rotated wireless port reconnects only the advertised selected hardware and
     assert.equal(calls.some(argv => argv.includes('192.0.2.2:9999')), false);
   }
 });
+test('direct ADB reuses a connected transport only after matching the bound hardware', async () => {
+  const id = 'd'.repeat(32);
+  const bound = { systemInput: { adbPath: path.resolve('test-adb'), devices: {
+    [id]: { serial: 'TV_SERIAL', hardwareSerial: 'TV_SERIAL' },
+  } } };
+  const calls = [];
+  const run = async (file, argv) => {
+    calls.push(argv);
+    if (argv[0] === 'devices') return { exitCode: 0,
+      stdout: 'List of devices attached\nOTHER device\n192.0.2.22:5555 device\n127.0.0.1:6008 device\n', stderr: '' };
+    const serial = argv[1];
+    const command = argv.slice(2).join(' ');
+    if (command === 'get-state') return { exitCode: serial === 'TV_SERIAL' ? 1 : 0,
+      stdout: serial === 'TV_SERIAL' ? '' : 'device\n', stderr: '' };
+    if (command === 'mdns services') return { exitCode: 0, stdout: '', stderr: '' };
+    if (command === 'shell getprop ro.serialno') return { exitCode: 0,
+      stdout: serial === '192.0.2.22:5555' ? 'TV_SERIAL\n' : 'OTHER\n', stderr: '' };
+    return { exitCode: 0, stdout: 'uid=2000(shell)', stderr: '' };
+  };
+  const result = await deviceAdb(bound, id, { argv: ['shell', 'id'] }, () => true, run);
+  assert.equal(result.ok, true);
+  assert.equal(result.result.connectionRoute, 'configured-direct');
+  assert.deepEqual(calls.at(-1), ['-s', '192.0.2.22:5555', 'shell', 'id']);
+  assert.equal(calls.some(argv => argv.join(' ') === '-s OTHER shell id'), false);
+  calls.length = 0;
+  await deviceAdb(bound, id, { argv: ['shell', 'id'] }, () => true, run);
+  assert.deepEqual(calls[0], ['-s', '192.0.2.22:5555', 'get-state']);
+});
+test('direct ADB does not dispatch through a connected but different device', async () => {
+  const id = 'e'.repeat(32);
+  const bound = { systemInput: { adbPath: path.resolve('test-adb'), devices: {
+    [id]: { serial: 'TV_SERIAL', hardwareSerial: 'TV_SERIAL' },
+  } } };
+  const calls = [];
+  await assert.rejects(deviceAdb(bound, id, { argv: ['shell', 'id'] }, () => true,
+    async (file, argv) => {
+      calls.push(argv);
+      if (argv[0] === 'devices') return { exitCode: 0, stdout: 'OTHER device\n', stderr: '' };
+      if (argv.at(-1) === 'ro.serialno') return { exitCode: 0, stdout: 'OTHER\n', stderr: '' };
+      if (argv.at(-1) === 'get-state') return { exitCode: 1, stdout: '', stderr: '' };
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }), /adb-transport-unavailable/);
+  assert.equal(calls.some(argv => argv.join(' ') === '-s OTHER shell id'), false);
+});
 test('binary output and input stream without text conversion or replacing existing output', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'arlab-adb-bytes-'));
   try {
