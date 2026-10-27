@@ -52,6 +52,7 @@ public final class RendezvousService extends Service {
 
     private final AtomicBoolean running = new AtomicBoolean();
     private Thread worker;
+    private Thread accessibilityRecoveryWorker;
     private DisplayLease displayLease;
     private boolean sessionAuthenticated;
 
@@ -83,6 +84,7 @@ public final class RendezvousService extends Service {
                 .put("androidSdk", Build.VERSION.SDK_INT)
                 .put("androidRelease", Build.VERSION.RELEASE)
                 .put("accessibility", AccessibilityReadiness.diagnostics(context))
+                .put("accessibilityBootRecovery", AccessibilityBootRecovery.isEnabled(context))
                 .put("tvRecovery", TvRecoveryDiagnostics.inspect(context))
                 .put("relayEndpoint", RelayPreferences.endpoint(context))
                 .put("serviceStatus", status)
@@ -119,7 +121,34 @@ public final class RendezvousService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String trigger = intent == null ? "sticky-restart" : intent.getStringExtra("trigger");
         appendLog(this, "service onStartCommand trigger=" + (trigger == null ? "unspecified" : trigger));
+        startAccessibilityRecovery();
         return START_STICKY;
+    }
+
+    private synchronized void startAccessibilityRecovery() {
+        if (!AccessibilityBootRecovery.isEnabled(this)
+                || (accessibilityRecoveryWorker != null && accessibilityRecoveryWorker.isAlive())) return;
+        accessibilityRecoveryWorker = new Thread(() -> {
+            long delayMillis = 10_000L;
+            while (running.get()) {
+                try {
+                    Thread.sleep(delayMillis);
+                    delayMillis = 30_000L;
+                    if (!running.get() || !AccessibilityBootRecovery.isEnabled(this)) return;
+                    UserManager users = (UserManager) getSystemService(USER_SERVICE);
+                    if (users == null || !users.isUserUnlocked()) continue;
+                    if (AccessibilityBootRecovery.restoreIfMissing(this)) {
+                        appendBootEvent(this, "accessibility restored");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (RuntimeException error) {
+                    appendBootFailure(this, error);
+                }
+            }
+        }, "companion-accessibility-recovery");
+        accessibilityRecoveryWorker.start();
     }
 
     @Override
@@ -127,6 +156,9 @@ public final class RendezvousService extends Service {
         running.set(false);
         if (worker != null) {
             worker.interrupt();
+        }
+        if (accessibilityRecoveryWorker != null) {
+            accessibilityRecoveryWorker.interrupt();
         }
         if (displayLease != null) {
             displayLease.release();

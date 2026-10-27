@@ -86,6 +86,7 @@ function usage() {
     `      tv-remote-pair, tv-remote-confirm SIX_HEX_CODE, tv-remote-press KEY\n` +
     `  arlab tv pair --device DEVICE_ID (enter the TV code on stdin)\n` +
     `  arlab tv press KEY --device DEVICE_ID (paired TV Remote Service)\n` +
+    `  arlab tv launch APP_LINK_URL [PACKAGE] --device DEVICE_ID\n` +
     `      adb/files accept --adb-route auto|direct|companion before --\n` +
     `      files list|stat|read REMOTE_PATH; files pull REMOTE LOCAL; files push LOCAL REMOTE\n` +
     `  arlab skill install\n`);

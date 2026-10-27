@@ -268,9 +268,7 @@ export async function pairTvRemote(deviceId, host, readCode, options = {}) {
   } finally { socket.destroy(); }
 }
 
-export async function pressTvRemote(deviceId, key, endpoint = null) {
-  const keyCode = KEY_CODES[key];
-  if (keyCode === undefined) throw new Error('Unsupported TV remote key');
+async function sendTvRemoteCommand(deviceId, requiredFeature, payload, endpoint) {
   const directory = deviceDirectory(deviceId);
   const record = JSON.parse(fs.readFileSync(path.join(directory, 'pairing.json'), 'utf8'));
   const credentials = identity(directory);
@@ -286,7 +284,9 @@ export async function pressTvRemote(deviceId, key, endpoint = null) {
       if (reply.has(1)) {
         const offered = parseFields(reply.get(1)).get(1) || 0;
         activeFeatures = offered & DESIRED_FEATURES;
-        if (!(activeFeatures & 2)) throw new Error('TV remote service does not support key input');
+        if (!(activeFeatures & requiredFeature)) {
+          throw new Error('TV remote service does not support this command');
+        }
         const deviceInfo = message(fieldNumber(3, 1), fieldText(4, '1'),
           fieldText(5, 'com.codex.remotecompanion'), fieldText(6, '1.0'));
         await frames.send(fieldBytes(1, message(fieldNumber(1, activeFeatures),
@@ -300,8 +300,28 @@ export async function pressTvRemote(deviceId, key, endpoint = null) {
       else if (reply.has(3)) throw new Error('TV remote service rejected the session');
     }
     if (!started) throw new Error('TV remote session did not start');
-    await frames.send(fieldBytes(10, message(fieldNumber(1, keyCode), fieldNumber(2, 3))));
+    await frames.send(payload);
     await new Promise((resolve) => setTimeout(resolve, 250));
-    return { dispatched: true, key };
+    return { dispatched: true };
   } finally { socket.destroy(); }
+}
+
+export async function pressTvRemote(deviceId, key, endpoint = null) {
+  const keyCode = KEY_CODES[key];
+  if (keyCode === undefined) throw new Error('Unsupported TV remote key');
+  const payload = fieldBytes(10, message(fieldNumber(1, keyCode), fieldNumber(2, 3)));
+  return { ...await sendTvRemoteCommand(deviceId, 2, payload, endpoint), key };
+}
+
+export async function launchTvRemoteApp(deviceId, url, packageName = null, endpoint = null) {
+  if (!/^[a-z][a-z0-9+.-]*:\/\/[^\s]+$/i.test(url || '')) {
+    throw new Error('TV app launch requires an app link URL');
+  }
+  if (packageName !== null && !/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/.test(packageName)) {
+    throw new Error('TV app launch package name is invalid');
+  }
+  const appLink = packageName ? message(fieldText(1, url), fieldText(2, packageName))
+    : fieldText(1, url);
+  const payload = fieldBytes(90, appLink);
+  return { ...await sendTvRemoteCommand(deviceId, 512, payload, endpoint), url, packageName };
 }

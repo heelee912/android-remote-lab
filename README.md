@@ -270,6 +270,7 @@ using the code on the TV:
 arlab doctor --repair --background --device <tv-device-id> --json
 arlab tv pair --device <tv-device-id>
 arlab tv press home --device <tv-device-id>
+arlab tv launch 'example-app://open' --device <tv-device-id>
 arlab session stop --device <tv-device-id>
 ```
 
@@ -278,6 +279,10 @@ so the box needs no public IP or inbound router rule. The PC stores its remote
 certificate and the TV certificate pin in local runtime state, not in this
 repository. Remote keys work without Accessibility or ADB. They do not supply
 screenshots or native shell commands; verify the visible action on the TV.
+`arlab tv launch` sends an app link URL registered by the destination app.
+An optional package name narrows resolution when the TV remote service can see
+that package; omit it if the service reports that a sideloaded app is absent.
+The send result does not confirm that Android launched the destination.
 Some TV Remote Service builds reject connections originating on the TV itself,
 which includes the Companion tunnel. For a TV reachable from the PC, use
 `arlab tv pair --host TV_ADDRESS --device <tv-device-id>` to pair directly.
@@ -311,6 +316,14 @@ open a network ADB listener. If both the wireless setting and a native listener
 are absent, first provision ADB through an authorized device-specific system
 path or a one-time USB host connection; Companion UI access cannot grant itself
 Android's protected debugging permissions.
+
+Some TV firmware removes third-party Accessibility services during startup. After
+an authorized ADB connection grants `WRITE_SECURE_SETTINGS` to Companion, the
+app offers **Restore remote control after restart**. Enable it while Companion's
+Accessibility service is active. The connected service checks after boot and
+periodically thereafter; if Android removes only Companion's entry, it restores
+that entry without replacing other enabled services. The switch is off by
+default and is unavailable without the ADB-granted permission.
 
 Doctor returns `READY` only when Companion `versionCode >= 7` reports both an unlocked keyguard and an active Accessibility service. `PHONE_LOCKED`, `ACCESSIBILITY_UNAVAILABLE`, `COMPANION_UPDATE_REQUIRED`, and `CONNECTED_UNVERIFIED` are non-ready states; the last two require a Companion upgrade.
 

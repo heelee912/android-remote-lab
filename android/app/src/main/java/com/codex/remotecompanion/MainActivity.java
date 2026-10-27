@@ -28,6 +28,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private EditText host;
     private EditText port;
+    private Button accessibilityRecovery;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -90,6 +91,27 @@ public final class MainActivity extends Activity {
         accessibility.setOnClickListener(view -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         content.addView(accessibility, matchWrap());
 
+        if (AccessibilityBootRecovery.canRestore(this)) {
+            accessibilityRecovery = new Button(this);
+            if (television) accessibilityRecovery.setTextSize(22);
+            updateAccessibilityRecoveryLabel();
+            accessibilityRecovery.setOnClickListener(view -> {
+                try {
+                    AccessibilityBootRecovery.setEnabled(this,
+                            !AccessibilityBootRecovery.isEnabled(this));
+                    if (AccessibilityBootRecovery.isEnabled(this)) {
+                        Intent recoveryStart = new Intent(this, RendezvousService.class);
+                        recoveryStart.putExtra("trigger", "recovery-enabled");
+                        startForegroundService(recoveryStart);
+                    }
+                    updateAccessibilityRecoveryLabel();
+                } catch (RuntimeException error) {
+                    status.setText(getString(R.string.setup_error, error.getMessage()));
+                }
+            });
+            content.addView(accessibilityRecovery, matchWrap());
+        }
+
         if (television && Build.VERSION.SDK_INT >= 33) {
             Button restrictedSettings = new Button(this);
             restrictedSettings.setText(R.string.open_restricted_settings);
@@ -126,7 +148,14 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        updateAccessibilityRecoveryLabel();
         refresh();
+    }
+
+    private void updateAccessibilityRecoveryLabel() {
+        if (accessibilityRecovery == null) return;
+        accessibilityRecovery.setText(AccessibilityBootRecovery.isEnabled(this)
+                ? R.string.accessibility_recovery_on : R.string.accessibility_recovery_off);
     }
 
     private void saveAndConnect() {

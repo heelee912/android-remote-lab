@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { generateTvIdentity, pairTvRemote, pressTvRemote,
+import { generateTvIdentity, launchTvRemoteApp, pairTvRemote, pressTvRemote,
   tvRemoteConnectionRoute } from '../src/tv-remote-direct.mjs';
 
 test('TV identity is a self-signed certificate for its private key', () => {
@@ -20,6 +20,12 @@ test('direct TV control requires a full selected device identity', async () => {
   await assert.rejects(pairTvRemote('wrong', '127.0.0.1', async () => ''),
     /full selected ARLab device ID/);
   await assert.rejects(pressTvRemote('wrong', 'home'), /full selected ARLab device ID/);
+  await assert.rejects(launchTvRemoteApp('wrong', 'arlab-probe://open', 'com.example.app'),
+    /full selected ARLab device ID/);
+  await assert.rejects(launchTvRemoteApp('a'.repeat(32), 'com.example.app'),
+    /app link URL/);
+  await assert.rejects(launchTvRemoteApp('a'.repeat(32), 'arlab-probe://open', 'not a package'),
+    /package name is invalid/);
 });
 
 test('TV control uses the route saved when pairing, including older direct records', () => {

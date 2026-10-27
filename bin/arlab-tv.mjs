@@ -4,7 +4,8 @@ import readline from 'node:readline/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { pairTvRemote, pressTvRemote, tvRemoteConnectionRoute } from '../src/tv-remote-direct.mjs';
+import { launchTvRemoteApp, pairTvRemote, pressTvRemote,
+  tvRemoteConnectionRoute } from '../src/tv-remote-direct.mjs';
 
 const clientPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/client.js');
 
@@ -54,10 +55,15 @@ export async function runTv(args, deviceId) {
     } finally { closeTunnel(tunnel); }
     return;
   }
-  if (action === 'press') {
-    if (rest.length !== 1) throw new Error('tv press requires one supported key');
+  if (action === 'press' || action === 'launch') {
+    if (rest.length < 1 || rest.length > (action === 'launch' ? 2 : 1)) {
+      throw new Error(`tv ${action} requires ${action === 'press' ? 'one key' : 'a URL and optional package'}`);
+    }
+    const perform = (endpoint) => action === 'press'
+      ? pressTvRemote(deviceId, rest[0], endpoint)
+      : launchTvRemoteApp(deviceId, rest[0], rest[1] || null, endpoint);
     if (tvRemoteConnectionRoute(deviceId) === 'direct') {
-      const result = await pressTvRemote(deviceId, rest[0]);
+      const result = await perform(null);
       process.stdout.write(`${JSON.stringify({ ok: true, result: { ...result,
         connectionRoute: 'direct' } }, null, 2)}\n`);
       return;
@@ -69,11 +75,11 @@ export async function runTv(args, deviceId) {
       if (!/tv-remote-tunnel-companion-update-required|Accessibility service is not enabled or not bound/.test(error.message)) throw error;
     }
     try {
-      const result = await pressTvRemote(deviceId, rest[0], tunnel);
+      const result = await perform(tunnel);
       process.stdout.write(`${JSON.stringify({ ok: true, result: { ...result,
         connectionRoute: tunnel ? 'companion-tunnel' : 'direct' } }, null, 2)}\n`);
     } finally { closeTunnel(tunnel); }
     return;
   }
-  throw new Error('tv requires pair or press KEY');
+  throw new Error('tv requires pair, press KEY, or launch URL [PACKAGE]');
 }
