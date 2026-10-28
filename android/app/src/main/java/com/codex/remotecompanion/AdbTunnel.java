@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 /** Carries selected ADB or TV remote bytes only to services on this device. */
 final class AdbTunnel implements AutoCloseable {
     private final Context context;
+    private final java.util.function.Consumer<String> audit;
     private final MobileAdbRecovery mobileRecovery;
     private final Map<String, SocketChannel> sockets = new HashMap<>();
     private static final int CHUNK_BYTES = 128 * 1024;
@@ -38,6 +39,8 @@ final class AdbTunnel implements AutoCloseable {
     private long propertiesReadAt = Long.MIN_VALUE;
     private int cachedTcpPort;
     private int cachedTlsPort;
+    private long lastUiRecoveryAt = Long.MIN_VALUE;
+    private String uiRecoveryError;
     private final NsdManager.DiscoveryListener discoveryListener = new NsdManager.DiscoveryListener() {
         public void onDiscoveryStarted(String type) { }
         public void onDiscoveryStopped(String type) { }
@@ -137,6 +140,7 @@ final class AdbTunnel implements AutoCloseable {
 
     AdbTunnel(Context context, java.util.function.Consumer<String> audit) {
         this.context = context;
+        this.audit = audit;
         mobileRecovery = new MobileAdbRecovery(context, audit, this::discoverMobileInterface);
         discovery = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
         discovery.discoverServices("_adb-tls-connect._tcp.", NsdManager.PROTOCOL_DNS_SD, discoveryListener);
@@ -211,6 +215,23 @@ final class AdbTunnel implements AutoCloseable {
             public long monotonicMillis() { return SystemClock.elapsedRealtime(); }
             public void await(long milliseconds) throws InterruptedException { Thread.sleep(milliseconds); }
         }, canRepair) : initialPort;
+        if (repair && canRepair && port == 0 && WirelessDebuggingUiRecovery.canAttempt(context)
+                && (lastUiRecoveryAt == Long.MIN_VALUE
+                        || SystemClock.elapsedRealtime() - lastUiRecoveryAt >= 30_000L)) {
+            lastUiRecoveryAt = SystemClock.elapsedRealtime();
+            try {
+                WirelessDebuggingUiRecovery.enable(context);
+                uiRecoveryError = null;
+                long deadline = SystemClock.elapsedRealtime() + 4_500L;
+                while (port == 0 && SystemClock.elapsedRealtime() < deadline) {
+                    Thread.sleep(100L);
+                    port = reachablePort();
+                }
+            } catch (Exception error) {
+                uiRecoveryError = error.getClass().getSimpleName() + ": " + error.getMessage();
+                audit.accept("wireless debugging UI recovery failed: " + uiRecoveryError);
+            }
+        }
         if (repair && canRepair && port == 0) mobileRecovery.start();
         boolean tcp = port > 0 && port == (cachedTcpPort > 0 ? cachedTcpPort : 5555);
         return new JSONObject().put("supported", true).put("tlsPort", tcp ? 0 : port)
@@ -222,6 +243,7 @@ final class AdbTunnel implements AutoCloseable {
                 .put("wirelessRestarted", repair && canRepair && initialPort == 0 && wirelessBefore)
                 .put("mobileRecoveryRunning", mobileRecovery.isRunning())
                 .put("mobileRecoveryError", mobileRecovery.lastError() == null ? JSONObject.NULL : mobileRecovery.lastError())
+                .put("uiRecoveryError", uiRecoveryError == null ? JSONObject.NULL : uiRecoveryError)
                 .put("pairingPort", discoveredPairingPort)
                 .put("canRepair", canRepair).put("ready", port > 0);
     }
