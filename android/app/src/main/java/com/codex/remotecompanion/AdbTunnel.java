@@ -220,7 +220,7 @@ final class AdbTunnel implements AutoCloseable {
                         || SystemClock.elapsedRealtime() - lastUiRecoveryAt >= 30_000L)) {
             lastUiRecoveryAt = SystemClock.elapsedRealtime();
             try {
-                WirelessDebuggingUiRecovery.enable(context);
+                WirelessDebuggingUiRecovery.enable(context, this::reachablePort);
                 uiRecoveryError = null;
                 long deadline = SystemClock.elapsedRealtime() + 4_500L;
                 while (port == 0 && SystemClock.elapsedRealtime() < deadline) {

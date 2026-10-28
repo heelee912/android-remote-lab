@@ -17,6 +17,10 @@ final class WirelessDebuggingUiRecovery {
     private static final String SETTINGS_PACKAGE = "com.android.settings";
     private static final String SYSTEM_UI_PACKAGE = "com.android.systemui";
 
+    interface ListenerProbe {
+        int listeningPort() throws Exception;
+    }
+
     static boolean canAttempt(Context context) {
         if (context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)
                 || DeviceReadiness.secureLocked(context)
@@ -27,23 +31,25 @@ final class WirelessDebuggingUiRecovery {
         return capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
     }
 
-    static void enable(Context context) throws Exception {
+    static void enable(Context context, ListenerProbe listener) throws Exception {
         ControlAccessibilityService accessibility = ControlAccessibilityService.getInstance();
         if (accessibility == null) throw new IllegalStateException("Accessibility is unavailable");
         boolean wasDark = !DeviceReadiness.interactive(context);
         DisplayLease temporaryLease = new DisplayLease(context);
         try {
-            temporaryLease.renew(30_000L);
+            temporaryLease.renew(40_000L);
             awaitUnlockedDisplay(context);
+            if (listener.listeningPort() > 0) return;
             if (allowNetworkDialog(accessibility)) return;
 
             Intent developerOptions = new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS);
             developerOptions.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             context.startActivity(developerOptions);
-            awaitSettings(accessibility);
+            if (awaitSettings(accessibility, listener)) return;
             SystemClock.sleep(250L);
 
             for (int page = 0; page < 8; page++) {
+                if (listener.listeningPort() > 0) return;
                 JSONObject snapshot = accessibility.snapshot();
                 if (!SETTINGS_PACKAGE.equals(accessibility.status().optString("packageName"))) {
                     throw new IllegalStateException("Developer settings lost foreground");
@@ -104,11 +110,13 @@ final class WirelessDebuggingUiRecovery {
         throw new IllegalStateException("Display did not unlock for wireless debugging recovery");
     }
 
-    private static void awaitSettings(ControlAccessibilityService accessibility) throws Exception {
-        long deadline = SystemClock.elapsedRealtime() + 4_000L;
+    private static boolean awaitSettings(ControlAccessibilityService accessibility,
+            ListenerProbe listener) throws Exception {
+        long deadline = SystemClock.elapsedRealtime() + 10_000L;
         while (SystemClock.elapsedRealtime() < deadline) {
-            if (SETTINGS_PACKAGE.equals(accessibility.status().optString("packageName"))) return;
-            SystemClock.sleep(100L);
+            if (listener.listeningPort() > 0) return true;
+            if (SETTINGS_PACKAGE.equals(accessibility.status().optString("packageName"))) return false;
+            SystemClock.sleep(200L);
         }
         throw new IllegalStateException("Developer settings did not open");
     }
