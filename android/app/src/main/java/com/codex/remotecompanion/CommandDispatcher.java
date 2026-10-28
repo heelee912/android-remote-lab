@@ -154,8 +154,22 @@ final class CommandDispatcher {
 
     private void awaitInteractive() {
         long deadline = SystemClock.elapsedRealtime() + 3000L;
-        while (!DeviceReadiness.interactive(context) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(25L);
+        long activityAt = SystemClock.elapsedRealtime() + 750L;
+        boolean activityRequested = false;
+        while (!DeviceReadiness.interactive(context) && SystemClock.elapsedRealtime() < deadline) {
+            if (!activityRequested && SystemClock.elapsedRealtime() >= activityAt) {
+                startWakeActivity();
+                activityRequested = true;
+            }
+            SystemClock.sleep(25L);
+        }
         if (!DeviceReadiness.interactive(context)) throw new IllegalStateException("Display wake timed out");
+    }
+
+    private void startWakeActivity() {
+        Intent wake = new Intent(context, WakeActivity.class);
+        wake.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+        context.startActivity(wake);
     }
 
     private void awaitDisplayReady() {
@@ -163,9 +177,7 @@ final class CommandDispatcher {
         long deadline = SystemClock.elapsedRealtime() + 3000L;
         if (DeviceReadiness.secureLocked(context)) throw new SecurityException("Secure keyguard is locked");
         if (DeviceReadiness.keyguardShowing(context)) {
-            Intent wake = new Intent(context, WakeActivity.class);
-            wake.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
-            context.startActivity(wake);
+            startWakeActivity();
             while (DeviceReadiness.keyguardShowing(context) && SystemClock.elapsedRealtime() < deadline) {
                 if (DeviceReadiness.secureLocked(context)) throw new SecurityException("Secure keyguard is locked");
                 SystemClock.sleep(25L);

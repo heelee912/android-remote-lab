@@ -12,13 +12,14 @@ public final class WakeActivity extends Activity {
         super.onCreate(state);
         setShowWhenLocked(true);
         setTurnScreenOn(true);
+        new Handler(Looper.getMainLooper()).postDelayed(this::finish, 2500L);
         KeyguardManager k = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        if (k == null || k.isDeviceLocked()) { finish(); return; }
+        // Keep the activity visible long enough for Android to turn on a locked display.
+        if (k == null || k.isDeviceLocked()) return;
         k.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
             @Override public void onDismissSucceeded() { finish(); }
             @Override public void onDismissCancelled() { finish(); }
             @Override public void onDismissError() { finish(); }
         });
-        new Handler(Looper.getMainLooper()).postDelayed(this::finish, 2500L);
     }
 }
