@@ -29,15 +29,22 @@ import java.io.FileWriter;
 import java.io.FileReader;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.SSLParameters;
@@ -328,7 +335,14 @@ public final class RendezvousService extends Service {
     }
 
     private Socket connectRoutedSocket(Network relayNetwork, String relayHost, int relayPort) throws Exception {
-        InetAddress[] addresses = relayNetwork.getAllByName(relayHost);
+        InetAddress[] addresses;
+        try {
+            addresses = relayNetwork.getAllByName(relayHost);
+        } catch (java.net.UnknownHostException dnsFailure) {
+            // Some VPN DNS resolvers fail even while Android reports a validated network.
+            // Resolve over HTTPS by numeric IP, then retain relayHost for TLS identity checks.
+            addresses = resolveThroughEncryptedDns(relayNetwork, relayHost, dnsFailure);
+        }
         Throwable lastFailure = null;
         for (int familyPass = 0; familyPass < 2; familyPass++) {
             for (InetAddress address : addresses) {
@@ -349,6 +363,61 @@ public final class RendezvousService extends Service {
         }
         if (lastFailure instanceof Exception) throw (Exception) lastFailure;
         throw new IllegalStateException("No relay address was reachable", lastFailure);
+    }
+
+    private static InetAddress[] resolveThroughEncryptedDns(Network network, String host,
+            Exception dnsFailure) throws IOException {
+        String query = "?name=" + URLEncoder.encode(host, StandardCharsets.UTF_8.name()) + "&type=A";
+        String[] endpoints = {
+                "https://1.1.1.1/dns-query" + query,
+                "https://8.8.8.8/resolve" + query
+        };
+        IOException lastFailure = new IOException("System DNS could not resolve relay host", dnsFailure);
+        for (String endpoint : endpoints) {
+            HttpsURLConnection connection = null;
+            try {
+                connection = (HttpsURLConnection) network.openConnection(new URL(endpoint));
+                connection.setConnectTimeout(5_000);
+                connection.setReadTimeout(5_000);
+                connection.setRequestProperty("Accept", "application/dns-json");
+                if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                    throw new IOException("Encrypted DNS returned HTTP " + connection.getResponseCode());
+                }
+                StringBuilder response = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                    char[] buffer = new char[2048];
+                    int length;
+                    while ((length = reader.read(buffer)) != -1) {
+                        response.append(buffer, 0, length);
+                        if (response.length() > 16_384) throw new IOException("Encrypted DNS response too large");
+                    }
+                }
+                JSONObject result = new JSONObject(response.toString());
+                if (result.optInt("Status", -1) != 0) {
+                    throw new IOException("Encrypted DNS did not resolve relay host");
+                }
+                JSONArray answers = result.optJSONArray("Answer");
+                ArrayList<InetAddress> addresses = new ArrayList<>();
+                if (answers != null) {
+                    for (int index = 0; index < answers.length(); index++) {
+                        JSONObject answer = answers.optJSONObject(index);
+                        if (answer == null || answer.optInt("type") != 1) continue;
+                        String address = answer.optString("data");
+                        if (!address.matches("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}")) continue;
+                        InetAddress parsed = InetAddress.getByName(address);
+                        if (parsed instanceof Inet4Address) addresses.add(parsed);
+                    }
+                }
+                if (!addresses.isEmpty()) return addresses.toArray(new InetAddress[0]);
+                throw new IOException("Encrypted DNS returned no IPv4 address");
+            } catch (Exception error) {
+                lastFailure = new IOException("Encrypted DNS fallback failed", error);
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }
+        throw lastFailure;
     }
 
     private static Network validatedInternetNetwork(Context context) {
