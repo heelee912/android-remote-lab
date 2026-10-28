@@ -53,6 +53,7 @@ public final class RendezvousService extends Service {
     private final AtomicBoolean running = new AtomicBoolean();
     private Thread worker;
     private Thread accessibilityRecoveryWorker;
+    private Thread nightScreenWorker;
     private DisplayLease displayLease;
     private boolean sessionAuthenticated;
 
@@ -115,6 +116,20 @@ public final class RendezvousService extends Service {
         running.set(true);
         worker = new Thread(this::runLoop, "companion-rendezvous");
         worker.start();
+        nightScreenWorker = new Thread(() -> {
+            while (running.get()) {
+                try {
+                    NightScreenGuard.synchronize(this);
+                    Thread.sleep(60_000L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (RuntimeException error) {
+                    Log.w(TAG, "night screen guard failed", error);
+                }
+            }
+        }, "companion-night-screen");
+        nightScreenWorker.start();
     }
 
     @Override
@@ -159,6 +174,9 @@ public final class RendezvousService extends Service {
         }
         if (accessibilityRecoveryWorker != null) {
             accessibilityRecoveryWorker.interrupt();
+        }
+        if (nightScreenWorker != null) {
+            nightScreenWorker.interrupt();
         }
         if (displayLease != null) {
             displayLease.release();
