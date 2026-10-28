@@ -16,4 +16,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "RemoteCompanion"
 include(":app")
-include(":night-screen-guard")

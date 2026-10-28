@@ -1,8 +1,0 @@
-<resources>
-    <string name="app_name">Night Screen Guard</string>
-    <string name="enabled">밤 화면 보호 사용</string>
-    <string name="start_time">시작 시각</string>
-    <string name="end_time">종료 시각</string>
-    <string name="ready">충전 재연결로 화면이 켜지는 동작을 야간에 막습니다.</string>
-    <string name="permission_missing">ADB에서 보안 설정 변경 권한을 부여해야 작동합니다.</string>
-</resources>
