@@ -192,7 +192,8 @@ final class AdbTunnel implements AutoCloseable {
     }
 
     private boolean enabled(String setting) {
-        return Settings.Global.getInt(context.getContentResolver(), setting, 0) == 1;
+        return AdbListenerRecovery.settingEnabled(
+                Settings.Global.getInt(context.getContentResolver(), setting, 0));
     }
 
     private void setEnabled(String setting, boolean value) {

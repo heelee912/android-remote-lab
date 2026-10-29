@@ -54,12 +54,13 @@ test('ADB recovery restarts stale enabled listeners and keeps TCP alive across W
 public final class AdbListenerRecoveryProbe {
   static final class Phone implements AdbListenerRecovery.Device {
     boolean adb, wireless = true, cycled, failWrite;
-    int port, readyAfter = 1800, wirelessWrites, probeMillis;
+    boolean readAdbSetting;
+    int adbSetting, adbWrites, port, readyAfter = 1800, wirelessWrites, probeMillis;
     long elapsed;
     public int listeningPort() { elapsed += probeMillis; return port > 0 ? port : cycled && wireless && elapsed >= readyAfter ? 5555 : 0; }
-    public boolean adbEnabled() { return adb; }
+    public boolean adbEnabled() { return readAdbSetting ? AdbListenerRecovery.settingEnabled(adbSetting) : adb; }
     public boolean wirelessEnabled() { return wireless; }
-    public void setAdbEnabled(boolean value) { if (failWrite) throw new IllegalStateException("setting rejected"); adb = value; }
+    public void setAdbEnabled(boolean value) { if (failWrite) throw new IllegalStateException("setting rejected"); adbWrites++; adb = value; if (readAdbSetting) adbSetting = value ? 1 : 0; }
     public void setWirelessEnabled(boolean value) { wirelessWrites++; if (!value) cycled = true; wireless = value; }
     public long monotonicMillis() { return elapsed; }
     public void await(long millis) { elapsed += millis; }
@@ -71,6 +72,12 @@ public final class AdbListenerRecoveryProbe {
     Phone healthy = new Phone(); healthy.port = 5555;
     if (AdbListenerRecovery.recover(healthy, true) != 5555 || !healthy.adb || healthy.wirelessWrites != 0 || healthy.elapsed != 0)
       throw new AssertionError("Working TCP must be retained without restarting wireless debugging");
+    Phone nonstandard = new Phone(); nonstandard.port = 5555; nonstandard.readAdbSetting = true; nonstandard.adbSetting = 2;
+    if (AdbListenerRecovery.recover(nonstandard, true) != 5555 || nonstandard.adbSetting != 2 || nonstandard.adbWrites != 0)
+      throw new AssertionError("An active positive ADB setting must not be rewritten during recovery");
+    if (AdbListenerRecovery.settingEnabled(0) || AdbListenerRecovery.settingEnabled(-1)
+        || !AdbListenerRecovery.settingEnabled(1) || !AdbListenerRecovery.settingEnabled(2))
+      throw new AssertionError("ADB settings must follow Android's positive-value semantics");
     Phone denied = new Phone();
     if (AdbListenerRecovery.recover(denied, false) != 0 || denied.adb || denied.wirelessWrites != 0)
       throw new AssertionError("An absent Android grant must produce no settings writes");

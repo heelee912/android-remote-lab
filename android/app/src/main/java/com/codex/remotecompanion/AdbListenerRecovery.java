@@ -2,6 +2,10 @@ package com.codex.remotecompanion;
 
 /** Coordinates listener recovery independently of Android settings and socket APIs. */
 final class AdbListenerRecovery {
+    static boolean settingEnabled(int value) {
+        return value > 0;
+    }
+
     interface Device {
         int listeningPort() throws Exception;
         boolean adbEnabled();
