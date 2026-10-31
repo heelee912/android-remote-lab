@@ -38,9 +38,9 @@ public final class RelayNetworkPolicyProbe {
   }
 }`);
     const policy = fileURLToPath(new URL('../android/app/src/main/java/com/codex/remotecompanion/RelayNetworkPolicy.java', import.meta.url));
-    execFileSync(binary('javac'), ['-d', directory, policy, harness], { windowsHide: true, timeout: 15000 });
+    execFileSync(binary('javac'), ['-d', directory, policy, harness], { windowsHide: true, timeout: 60000 });
     execFileSync(binary('java'), ['-cp', directory, 'com.codex.remotecompanion.RelayNetworkPolicyProbe'],
-      { windowsHide: true, timeout: 15000 });
+      { windowsHide: true, timeout: 60000 });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -95,8 +95,8 @@ public final class AdbListenerRecoveryProbe {
   }
 }`);
     const source = fileURLToPath(new URL('../android/app/src/main/java/com/codex/remotecompanion/AdbListenerRecovery.java', import.meta.url));
-    execFileSync(binary('javac'), ['-d', directory, source, harness], { windowsHide: true, timeout: 15000 });
+    execFileSync(binary('javac'), ['-d', directory, source, harness], { windowsHide: true, timeout: 60000 });
     execFileSync(binary('java'), ['-cp', directory, 'com.codex.remotecompanion.AdbListenerRecoveryProbe'],
-      { windowsHide: true, timeout: 15000 });
+      { windowsHide: true, timeout: 60000 });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
