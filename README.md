@@ -270,6 +270,7 @@ using the code on the TV:
 arlab doctor --repair --background --device <tv-device-id> --json
 arlab tv pair --device <tv-device-id>
 arlab tv press home --device <tv-device-id>
+arlab tv press play --device <tv-device-id>
 arlab tv launch 'example-app://open' --device <tv-device-id>
 arlab session stop --device <tv-device-id>
 ```
@@ -324,6 +325,90 @@ Accessibility service is active. The connected service checks after boot and
 periodically thereafter; if Android removes only Companion's entry, it restores
 that entry without replacing other enabled services. The switch is off by
 default and is unavailable without the ADB-granted permission.
+
+### LG webOS TV
+
+An LG webOS TV can use its built-in secure WebSocket control port without an
+Android Companion or rooting. The TV and PC must be able to reach each other on
+TCP port 3001. Inspect the TV certificate, then pair once by accepting the
+prompt on the TV:
+
+```powershell
+arlab webos inspect-host <tv-ip>
+arlab webos pair <tv-ip> <certificate-sha256-from-inspect-host>
+arlab webos status
+arlab webos press INFO
+arlab webos screenshot C:\Evidence\tv-screen.jpg
+arlab webos screen-off
+arlab webos request audio/getStatus
+```
+
+If that paired TV is asleep, the Marusys MA5100 set-top box can send its
+manufacturer's TV power-on signal using the HDMI display identification already
+stored on the box. Start a background ARLab session for that device, then run:
+
+```powershell
+arlab status
+$settopDeviceId = 'REPLACE_WITH_32_CHARACTER_DEVICE_ID_FROM_STATUS'
+arlab doctor --repair --background --device $settopDeviceId --json
+arlab session start --background --device $settopDeviceId --json
+arlab device adb --device $settopDeviceId -- shell am startservice -n com.kt.atv.gigagenie.fw.dmsvc/.IrService --es action poweron
+arlab device adb --device $settopDeviceId -- shell svc power stayon true
+arlab device adb --device $settopDeviceId -- shell input keyevent 224
+arlab webos status
+arlab webos screen-off
+arlab webos status
+arlab session stop --device $settopDeviceId
+```
+
+The `screen-off` command switches off only the TV panel while HDMI ARC stays
+active. It first checks that the TV is already active, never wakes a fully-off TV,
+tries the modern and webOS 4 panel-off service names, and reports success only
+after `power.state: Screen Off` is read back. It does not send audio, input, or
+power-toggle commands. Verify the ARC output in the final status;
+the set-top's service start result alone cannot confirm that the TV received IR.
+For an unattended black-screen test, the set-top must remain awake so HDMI 3
+continues to supply a video signal. `svc power stayon true` persists Android's
+stay-awake-while-powered setting; key event 224 wakes it after a quiescent boot.
+Verify `mWakefulness=Awake` and `mStayOn=true` in `dumpsys power` while the
+set-top's black-screen activity is in front. The TV panel can then remain
+`Screen Off` without losing the HDMI signal.
+
+For a set-top box on HDMI 3 and a soundbar on HDMI ARC, `arlab webos guard once`
+reads the ARC power and audio state. It remembers the current volume and mute
+while ARC is selected, but never sends a TV audio command. This makes scheduled
+checks safe during viewing. `arlab webos guard repair` is a separate manual
+command that can restore ARC after a fallback; it changes the TV output, volume,
+and mute, so run it only when audio control is intended. It never uses mute as a
+periodic keepalive while ARC is already healthy.
+
+The optional Windows scheduled task invokes the read-only `guard once` command:
+
+```powershell
+& .\windows\Install-WebOsArcGuard.ps1
+```
+
+It reads the TV every minute while this Windows user is signed in, including
+when the TV reports `Screen Off`. It does not prevent or repair soundbar standby.
+To stop the checks, run the installer with `-Remove`. The saved audio state is
+stored in local application data, outside the repository. The scheduled action
+uses a windowless launcher, so each check does not open PowerShell or take focus.
+
+The pairing key and certificate fingerprint are saved under the current user's
+`AndroidRemoteLab` local application data, never in this repository. Later calls
+reject a changed certificate before sending the key. `status` reads the TV model,
+power, foreground app, audio output and attached HDMI devices. `request` sends a webOS SSAP
+request with an optional JSON object payload; it reports the TV's exact response.
+`screenshot` saves a JPEG to an absolute path outside the repository and refuses
+to replace an existing file. DRM-protected video may appear black in a capture.
+SSAP provides TV controls and selected settings, but it is not an ADB or shell
+connection and does not grant access to private webOS services.
+
+An already provisioned SSH connection can optionally send local Luna requests
+with `arlab webos luna`. Setup, host-key verification, Developer Mode limits,
+and the distinction between public and root access are in
+[the webOS Luna guide](docs/webos-luna.md). This does not install SSH, enable
+Developer Mode, or grant private-service permissions.
 
 Doctor returns `READY` only when Companion `versionCode >= 7` reports both an unlocked keyguard and an active Accessibility service. `PHONE_LOCKED`, `ACCESSIBILITY_UNAVAILABLE`, `COMPANION_UPDATE_REQUIRED`, and `CONNECTED_UNVERIFIED` are non-ready states; the last two require a Companion upgrade.
 

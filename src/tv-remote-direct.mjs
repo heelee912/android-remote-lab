@@ -11,6 +11,7 @@ const DESIRED_FEATURES = 1 | 2 | 32 | 64 | 512;
 const KEY_CODES = Object.freeze({
   home: 3, back: 4, dpad_up: 19, dpad_down: 20, dpad_left: 21,
   dpad_right: 22, dpad_center: 23, enter: 66, menu: 82,
+  play_pause: 85, play: 126, pause: 127,
 });
 
 function varint(value) {

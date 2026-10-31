@@ -87,6 +87,10 @@ function usage() {
     `  arlab tv pair --device DEVICE_ID (enter the TV code on stdin)\n` +
     `  arlab tv press KEY --device DEVICE_ID (paired TV Remote Service)\n` +
     `  arlab tv launch APP_LINK_URL [PACKAGE] --device DEVICE_ID\n` +
+    `  arlab webos inspect-host IP | pair IP CERT_SHA256 | status | press KEY\n` +
+    `  arlab webos screenshot ABSOLUTE_OUTPUT.jpg\n` +
+    `  arlab webos guard once (restore paired TV's HDMI ARC after standby)\n` +
+    `  arlab webos request SSAP_URI [JSON_PAYLOAD] (paired LG webOS TV)\n` +
     `      adb/files accept --adb-route auto|direct|companion before --\n` +
     `      files list|stat|read REMOTE_PATH; files pull REMOTE LOCAL; files push LOCAL REMOTE\n` +
     `  arlab skill install\n`);
@@ -132,6 +136,13 @@ switch (command) {
     try {
       const { runTv } = await import('./arlab-tv.mjs');
       await runTv(args, deviceId);
+    } catch (error) { fail(error.message); }
+    break;
+  }
+  case 'webos': {
+    try {
+      const { runWebOs } = await import('./arlab-webos.mjs');
+      await runWebOs(args);
     } catch (error) { fail(error.message); }
     break;
   }
