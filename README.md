@@ -66,7 +66,7 @@ dispatching the caller command. `adb-status` exposes `mobileRecoveryRunning` and
 testing reboot; the bootstrap depends on Android's implementation. The temporary
 hotspot closes after completion, failure, deadline or Companion disconnect.
 
-Companion 1.2.34+ adds a banking-compatibility mode with bounded native ADB
+Companion 1.2.35+ adds a banking-compatibility mode with bounded native ADB
 windows. Enable it while an already-authorized ADB transport is available:
 
 ```powershell

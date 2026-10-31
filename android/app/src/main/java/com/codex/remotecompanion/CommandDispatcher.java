@@ -41,7 +41,8 @@ final class CommandDispatcher {
                     .put("leaseRemainingMillis", displayLease.remainingMillis());
         }
         if (command.startsWith("privileged_shell_") || command.startsWith("banking_compatibility_")) {
-            assertUserStorageReady();
+            // Both capability stores live in device-protected storage and are required
+            // before the first unlock to close a bounded ADB window safely.
             assertConnectionReady();
             switch (command) {
                 case "privileged_shell_prepare": return privilegedShell.prepare();
