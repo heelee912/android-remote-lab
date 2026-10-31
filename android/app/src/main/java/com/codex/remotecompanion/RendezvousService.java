@@ -118,13 +118,6 @@ public final class RendezvousService extends Service {
     public void onCreate() {
         super.onCreate();
         appendLog(this, "service onCreate");
-        try {
-            if (new BankingCompatibility(this, new PrivilegedShellChannel(this)).enforceAtStartup()) {
-                appendBootEvent(this, "banking compatibility enforced by service fallback");
-            }
-        } catch (Throwable error) {
-            appendBootFailure(this, error);
-        }
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, notification(getString(R.string.notification_text)));
         displayLease = new DisplayLease(this);
@@ -271,6 +264,12 @@ public final class RendezvousService extends Service {
             }
             if (!"auth_ok".equals(authResult.optString("type"))) {
                 throw new SecurityException("Device authentication was rejected");
+            }
+
+            // The relay session is the recovery path after ADB is hidden from banking apps.
+            // Never close ADB during boot until this independent authenticated path exists.
+            if (new BankingCompatibility(this, new PrivilegedShellChannel(this)).enforceAtStartup()) {
+                appendBootEvent(this, "banking compatibility enforced after relay authentication");
             }
 
             setStatus("Connected: " + deviceId);
