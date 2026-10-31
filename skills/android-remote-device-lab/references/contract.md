@@ -96,7 +96,7 @@ Without the configured ADB connection this path fails; it cannot bootstrap pairi
 
 Companion 1.2.0+ transports ADB inside its enrolled TLS connection to the Tailscale Funnel endpoint. The owner-scoped PC listener binds only loopback, accepts at most four ADB streams, and connects only this phone's loopback ADB service. Companion 1.2.1+ uses nonblocking reads and writes so backpressure cannot stop heartbeats or the opposite direction. Stream data is not written to audit logs. Loss of the owner lease or enrolled connection closes the tunnel; later owned commands reconnect using the existing PC ADB key. Physical serial verification remains mandatory before target execution. `system_input` uses this same route.
 
-Companion 1.2.30+ also supports a separate loopback privileged-shell broker.
+Companion 1.2.31+ also supports a separate loopback privileged-shell broker.
 Bootstrap requires an already-authorized ADB shell and verifies that the broker
 runs as UID 2000. Banking mode then disables Android's ADB and developer-setting
 flags while retaining only `shell` and `exec-out` through the authenticated

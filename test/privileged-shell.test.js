@@ -78,6 +78,9 @@ test('bootstraps through authorized ADB without returning the capability', async
     adbRequest = request;
     return { ok: true, result: { exitCode: 0 } };
   }, async command => {
+    if (command === 'privileged_shell_status' && statusReads++ === 0) {
+      return { ok: true, result: { ready: false } };
+    }
     if (command === 'privileged_shell_prepare') return { ok: true, result: {
       port: 27183,
       token,
@@ -85,14 +88,28 @@ test('bootstraps through authorized ADB without returning the capability', async
       mainClass: 'com.codex.remotecompanion.PrivilegedShellBroker',
     } };
     assert.equal(command, 'privileged_shell_status');
-    statusReads++;
     return { ok: true, result: { ready: true, uid: 2000, pid: 1234 } };
   });
-  assert.equal(statusReads, 1);
+  assert.equal(statusReads, 2);
   assert.match(adbRequest.argv[1], /app_process/);
   assert.match(adbRequest.argv[1], new RegExp(token));
   assert.equal(JSON.stringify(result).includes(token), false);
   assert.deepEqual(result, { ok: true, result: {
     ready: true, uid: 2000, pid: 1234, connectionRoute: 'companion-privileged-shell',
+  } });
+});
+
+test('reuses a live broker without rotating its capability or starting another process', async () => {
+  let adbCalls = 0;
+  const result = await bootstrapPrivilegedShell(async () => {
+    adbCalls++;
+    throw new Error('ADB must not run for an existing broker');
+  }, async command => {
+    assert.equal(command, 'privileged_shell_status');
+    return { ok: true, result: { ready: true, uid: 2000, pid: 9876 } };
+  });
+  assert.equal(adbCalls, 0);
+  assert.deepEqual(result, { ok: true, result: {
+    ready: true, uid: 2000, pid: 9876, connectionRoute: 'companion-privileged-shell',
   } });
 });

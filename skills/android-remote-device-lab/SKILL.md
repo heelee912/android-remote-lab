@@ -143,7 +143,7 @@ Enrollment for unattended use also sets and reads back
 keys do not expire during idle periods. Unknown keys still require Android's own
 authorization. This setting is independent of screen-lock credentials.
 
-Companion 1.2.30+ can retain Android `shell` UID commands while the visible
+Companion 1.2.31+ can retain Android `shell` UID commands while the visible
 debugging settings are off. Run `arlab device privileged-shell-bootstrap --json`
 once through an already-authorized ADB route, then `arlab device banking-mode
 enable --json`. The device-side broker binds only loopback, authenticates every

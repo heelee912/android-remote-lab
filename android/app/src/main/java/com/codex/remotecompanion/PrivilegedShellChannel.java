@@ -17,7 +17,8 @@ final class PrivilegedShellChannel {
     private static final String PREFERENCES = "privileged-shell-channel";
     private static final String TOKEN = "token";
     private static final String PORT = "port";
-    private static final int DEFAULT_PORT = 27183;
+    private static final int FIRST_PORT = 27183;
+    private static final int LAST_PORT = 28182;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final Context context;
@@ -32,9 +33,14 @@ final class PrivilegedShellChannel {
         StringBuilder token = new StringBuilder(64);
         for (byte value : tokenBytes) token.append(String.format("%02x", value & 0xff));
         java.util.Arrays.fill(tokenBytes, (byte) 0);
-        preferences().edit().putString(TOKEN, token.toString()).putInt(PORT, DEFAULT_PORT).apply();
+        SharedPreferences preferences = preferences();
+        int previousPort = preferences.getInt(PORT, FIRST_PORT - 1);
+        int port = previousPort >= LAST_PORT ? FIRST_PORT : Math.max(FIRST_PORT, previousPort + 1);
+        if (!preferences.edit().putString(TOKEN, token.toString()).putInt(PORT, port).commit()) {
+            throw new IllegalStateException("Could not persist privileged shell capability");
+        }
         return new JSONObject()
-                .put("port", DEFAULT_PORT)
+                .put("port", port)
                 .put("token", token.toString())
                 .put("classpath", context.getApplicationInfo().sourceDir)
                 .put("mainClass", PrivilegedShellBroker.class.getName());

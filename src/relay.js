@@ -598,7 +598,7 @@ function invokeCommand(deviceId, command, args, timeoutMs) {
 
 async function bankingCompatibilityStatus(deviceId) {
   const target = connections.get(deviceId);
-  if (!target || Number(target.versionCode || 0) < 46) return { supported: false, enabled: false };
+  if (!target || Number(target.versionCode || 0) < 47) return { supported: false, enabled: false };
   const response = await invokeCommand(deviceId, 'banking_compatibility_status', {}, 5_000);
   return response.ok ? { supported: true, ...response.result } : { supported: true, enabled: false, error: response.error };
 }
@@ -629,7 +629,7 @@ async function bootstrapDevicePrivilegedShell(deviceId, owner, stillOwnsDevice) 
 
 async function restorePrivilegedShells() {
   for (const [deviceId, target] of connections) {
-    if (Number(target.versionCode || 0) < 46) continue;
+    if (Number(target.versionCode || 0) < 47) continue;
     const existingLease = controlLeases.get(deviceId);
     // A display lease may be in the middle of interactive work. A background
     // lease already authorizes non-UI maintenance and must not postpone reboot

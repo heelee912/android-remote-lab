@@ -66,7 +66,7 @@ dispatching the caller command. `adb-status` exposes `mobileRecoveryRunning` and
 testing reboot; the bootstrap depends on Android's implementation. The temporary
 hotspot closes after completion, failure, deadline or Companion disconnect.
 
-Companion 1.2.30+ adds a rootless privileged-shell channel for banking-app
+Companion 1.2.31+ adds a rootless privileged-shell channel for banking-app
 compatibility. Provision it once while an already-authorized ADB transport is
 available:
 

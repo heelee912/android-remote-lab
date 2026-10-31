@@ -76,6 +76,11 @@ function quoteShell(value) {
 }
 
 async function bootstrapPrivilegedShell(executeAdb, invokeCompanion) {
+  const existing = await invokeCompanion('privileged_shell_status', {}, 5_000);
+  if (existing.ok && existing.result?.ready && existing.result?.uid === 2000) {
+    return { ok: true, result: { ready: true, uid: 2000, pid: existing.result.pid,
+      connectionRoute: 'companion-privileged-shell' } };
+  }
   const prepared = await invokeCompanion('privileged_shell_prepare', {}, 10_000);
   if (!prepared.ok) return prepared;
   const { port, token, classpath, mainClass } = prepared.result || {};
