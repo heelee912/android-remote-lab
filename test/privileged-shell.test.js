@@ -8,6 +8,11 @@ const test = require('node:test');
 
 const { bootstrapPrivilegedShell, executePrivilegedShell, isPrivilegedShellRequest } = require('../src/privileged-shell.js');
 
+test('Windows runtime deployment includes the privileged shell module', () => {
+  const installer = fs.readFileSync(path.join(__dirname, '..', 'windows', 'Install-Runtime.ps1'), 'utf8');
+  assert.match(installer, /src\\privileged-shell\.js[^\r\n]+runtime 'privileged-shell\.js'/);
+});
+
 test('recognizes only adb shell and exec-out requests', () => {
   assert.equal(isPrivilegedShellRequest({ argv: ['shell', 'id'] }), true);
   assert.equal(isPrivilegedShellRequest({ argv: ['exec-out', 'screencap', '-p'] }), true);
