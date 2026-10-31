@@ -66,10 +66,16 @@ final class BankingCompatibility {
     JSONObject closeBootstrapWindow() throws Exception {
         assertCanChangeSettings();
         if (!preferences().getBoolean(ENABLED, false)) return status().put("bootstrapClosed", false);
-        write("adb_wifi_enabled", 0);
-        write("development_settings_enabled", 0);
-        write("adb_enabled", 0);
+        enforceDisabledSettings();
         return status().put("bootstrapClosed", true);
+    }
+
+    /** Restores the banking invariant after reboot or a package replacement. */
+    boolean enforceAtStartup() throws Exception {
+        if (!preferences().getBoolean(ENABLED, false)) return false;
+        assertCanChangeSettings();
+        enforceDisabledSettings();
+        return true;
     }
 
     JSONObject status() throws Exception {
@@ -95,6 +101,12 @@ final class BankingCompatibility {
         write("development_settings_enabled", preferences.getInt(ORIGINAL_DEVELOPMENT, 1));
         write("adb_enabled", preferences.getInt(ORIGINAL_ADB, 1));
         write("adb_wifi_enabled", preferences.getInt(ORIGINAL_WIRELESS, 0));
+    }
+
+    private void enforceDisabledSettings() throws Exception {
+        write("adb_wifi_enabled", 0);
+        write("development_settings_enabled", 0);
+        write("adb_enabled", 0);
     }
 
     private int read(String name) {

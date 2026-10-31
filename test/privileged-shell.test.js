@@ -11,6 +11,7 @@ const { bootstrapPrivilegedShell, executePrivilegedShell, isPrivilegedShellReque
 test('Windows runtime deployment includes the privileged shell module', () => {
   const installer = fs.readFileSync(path.join(__dirname, '..', 'windows', 'Install-Runtime.ps1'), 'utf8');
   assert.match(installer, /src\\privileged-shell\.js[^\r\n]+runtime 'privileged-shell\.js'/);
+  assert.match(installer, /src\\banking-debug-window\.js[^\r\n]+runtime 'banking-debug-window\.js'/);
 });
 
 test('recognizes only adb shell and exec-out requests', () => {

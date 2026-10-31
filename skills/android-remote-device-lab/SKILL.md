@@ -143,7 +143,7 @@ Enrollment for unattended use also sets and reads back
 keys do not expire during idle periods. Unknown keys still require Android's own
 authorization. This setting is independent of screen-lock credentials.
 
-Companion 1.2.32+ provides banking compatibility without root or banking-app
+Companion 1.2.33+ provides banking compatibility without root or banking-app
 patches. `banking-mode enable` saves the original settings and keeps ADB and the
 developer flag off between commands. On automatic ADB commands, the relay opens
 a bounded authorized debug window only when a known launcher/system package is

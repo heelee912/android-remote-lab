@@ -118,6 +118,13 @@ public final class RendezvousService extends Service {
     public void onCreate() {
         super.onCreate();
         appendLog(this, "service onCreate");
+        try {
+            if (new BankingCompatibility(this, new PrivilegedShellChannel(this)).enforceAtStartup()) {
+                appendBootEvent(this, "banking compatibility enforced by service fallback");
+            }
+        } catch (Throwable error) {
+            appendBootFailure(this, error);
+        }
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, notification(getString(R.string.notification_text)));
         displayLease = new DisplayLease(this);

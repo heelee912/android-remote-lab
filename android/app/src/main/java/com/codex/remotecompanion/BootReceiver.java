@@ -10,6 +10,15 @@ public final class BootReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String trigger = intent == null ? "unknown" : intent.getAction();
         RendezvousService.appendBootEvent(context, "received " + trigger);
+        try {
+            boolean enforced = new BankingCompatibility(
+                    context, new PrivilegedShellChannel(context)).enforceAtStartup();
+            if (enforced) {
+                RendezvousService.appendBootEvent(context, "banking compatibility enforced");
+            }
+        } catch (Throwable error) {
+            RendezvousService.appendBootFailure(context, error);
+        }
         Intent service = new Intent(context, RendezvousService.class);
         service.putExtra("trigger", trigger);
         try {
