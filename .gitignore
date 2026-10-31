@@ -19,3 +19,7 @@ runtime/
 .codex-test/
 .test-evidence/
 .private/
+
+# Agent scratch files and remote attachments
+.tmp-*
+.codex-remote-attachments/
