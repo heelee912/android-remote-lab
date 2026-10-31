@@ -143,6 +143,24 @@ Enrollment for unattended use also sets and reads back
 keys do not expire during idle periods. Unknown keys still require Android's own
 authorization. This setting is independent of screen-lock credentials.
 
+Companion 1.2.30+ can retain Android `shell` UID commands while the visible
+debugging settings are off. Run `arlab device privileged-shell-bootstrap --json`
+once through an already-authorized ADB route, then `arlab device banking-mode
+enable --json`. The device-side broker binds only loopback, authenticates every
+request with a random capability held by Companion, and must report UID 2000
+before the settings transition is accepted. `arlab device adb --adb-route
+privileged --json -- shell id` requires this route; normal automatic routing
+also selects it for `shell` and `exec-out` while banking mode is enabled.
+
+This is a rootless shell channel, not root and not an app hook. Native ADB
+services such as install, forward, pair and sync are unavailable while adbd is
+off; the relay reports that boundary rather than silently turning debugging on.
+After reboot the stock OS removes the shell process. If Companion and the PC
+relay are online, maintenance recovery briefly opens the existing authorized
+ADB bootstrap, recreates and verifies the broker, and closes debugging again.
+Read `banking-mode status`; `bootstrapRequired` and `shellReady` are separate
+facts, and Companion connectivity alone is not shell proof.
+
 Automatic and Companion ADB routes prepare a recovered TLS-only listener for
 mobile use with a hardware-verified `adb tcpip 5555`, poll the actual TCP port,
 and rebuild the tunnel before dispatching the caller command. Explicit `tcpip`
@@ -166,6 +184,9 @@ arlab device adb --json -- shell pm list packages --user 0
 arlab device adb --json -- logcat -d -t 200
 arlab device files read /data/user/0/com.example.debug/files/example.bin --as-package com.example.debug --output 'C:\Task\private.bin' --json
 arlab device adb --json --output 'C:\Task\capture.png' -- exec-out screencap -p
+arlab device privileged-shell-status --json
+arlab device banking-mode status --json
+arlab device adb --adb-route privileged --json -- shell id
 ```
 
 Put ARLab flags before `--`; everything after it passes unchanged to ADB. Device selection remains `--device DEVICE_ID` before `--`. Use `--input-file LOCAL_FILE` for binary standard input, `--output LOCAL_FILE` for binary or large output, and `--timeout-ms` up to 600000 for bounded long commands. Output files are created exclusively and are never silently overwritten. Native `pull`/`push` follow ADB's normal destination behavior. Remote paths in `files` commands must be absolute; spaces and apostrophes are preserved. File reads use native pull into a temporary local file, then return or save the original bytes and remove the temporary copy. This avoids exec-out quoting and Windows shell newline conversion.

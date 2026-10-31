@@ -36,6 +36,8 @@ function usage(error) {
     '  companion-cli.js install-status [uploadId]',
     '  companion-cli.js diagnostics',
     '  companion-cli.js adb-status [--repair]',
+    '  companion-cli.js privileged-shell-bootstrap|privileged-shell-status',
+    '  companion-cli.js banking-status|banking-enable|banking-disable',
     '  companion-cli.js tv-remote-status|tv-remote-pair|tv-remote-confirm CODE|tv-remote-press KEY',
     '  companion-cli.js adb <jsonRequest>',
     '  companion-cli.js session-start [minutes]',
@@ -116,7 +118,7 @@ async function ensureControlLease(displayOnly = false, background = false, timeo
 }
 
 async function command(name, args = {}, timeoutMs = 20_000, maintainDisplayLease = true) {
-  const longAdbCommand = ['adb', 'adb_pair', 'adb_bind'].includes(name);
+  const longAdbCommand = ['adb', 'adb_pair', 'adb_bind', 'privileged_shell_bootstrap'].includes(name);
   const apiTimeoutMs = Math.max(35_000,
     Math.min(timeoutMs + (longAdbCommand ? 210_000 : 20_000), longAdbCommand ? 900_000 : 140_000));
   const reconnectDeadline = Date.now() + 30_000;
@@ -124,7 +126,10 @@ async function command(name, args = {}, timeoutMs = 20_000, maintainDisplayLease
     let submitted = false;
     try {
       if (maintainDisplayLease) await ensureControlLease(name === 'wake',
-        ['adb', 'adb_pair', 'adb_bind', 'diagnostics', 'ping', 'adb_tunnel_status',
+        ['adb', 'adb_pair', 'adb_bind', 'privileged_shell_bootstrap',
+          'privileged_shell_status', 'banking_compatibility_status',
+          'banking_compatibility_enable', 'banking_compatibility_disable',
+          'diagnostics', 'ping', 'adb_tunnel_status',
           'tv_remote_status', 'tv_remote_pair_start', 'tv_remote_pair_finish', 'tv_remote_press',
           'tv_remote_tunnel_open', 'tv_remote_tunnel_close',
           'install_begin', 'install_chunk', 'install_commit', 'install_status'].includes(name),
@@ -350,6 +355,31 @@ async function main() {
       break;
     case 'adb-bind':
       result = await command('adb_bind', {}, 65_000);
+      if (!result.ok) process.exitCode = 1;
+      break;
+    case 'privileged-shell-bootstrap':
+      result = await command('privileged_shell_bootstrap', {}, 90_000);
+      if (!result.ok) process.exitCode = 1;
+      break;
+    case 'privileged-shell-status':
+      result = await command('privileged_shell_status', {});
+      break;
+    case 'banking-status':
+      result = await command('banking_compatibility_status', {});
+      break;
+    case 'banking-enable': {
+      const broker = await command('privileged_shell_bootstrap', {}, 90_000);
+      if (!broker.ok) {
+        result = broker;
+        process.exitCode = 1;
+        break;
+      }
+      result = await command('banking_compatibility_enable', {}, 20_000);
+      if (!result.ok) process.exitCode = 1;
+      break;
+    }
+    case 'banking-disable':
+      result = await command('banking_compatibility_disable', {}, 20_000);
       if (!result.ok) process.exitCode = 1;
       break;
     case 'swipe':

@@ -92,6 +92,8 @@ public final class RendezvousService extends Service {
                 .put("androidRelease", Build.VERSION.RELEASE)
                 .put("accessibility", AccessibilityReadiness.diagnostics(context))
                 .put("accessibilityBootRecovery", AccessibilityBootRecovery.isEnabled(context))
+                .put("bankingCompatibility", new BankingCompatibility(
+                        context, new PrivilegedShellChannel(context)).status())
                 .put("tvRecovery", TvRecoveryDiagnostics.inspect(context))
                 .put("relayEndpoint", RelayPreferences.endpoint(context))
                 .put("serviceStatus", status)

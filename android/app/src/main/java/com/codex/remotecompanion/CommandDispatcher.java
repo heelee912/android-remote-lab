@@ -13,6 +13,8 @@ final class CommandDispatcher {
     private final Context context;
     private final DisplayLease displayLease;
     private final TvRemoteControl tvRemoteControl;
+    private final PrivilegedShellChannel privilegedShell;
+    private final BankingCompatibility bankingCompatibility;
 
     CommandDispatcher(Context context, DisplayLease displayLease) {
         this(context, displayLease, new TvRemoteControl(context));
@@ -22,6 +24,8 @@ final class CommandDispatcher {
         this.context = context;
         this.displayLease = displayLease;
         this.tvRemoteControl = tvRemoteControl;
+        this.privilegedShell = new PrivilegedShellChannel(context);
+        this.bankingCompatibility = new BankingCompatibility(context, privilegedShell);
     }
 
     JSONObject dispatch(String command, JSONObject args) throws Exception {
@@ -35,6 +39,25 @@ final class CommandDispatcher {
         if ("diagnostics".equals(command)) {
             return RendezvousService.diagnostics(context)
                     .put("leaseRemainingMillis", displayLease.remainingMillis());
+        }
+        if (command.startsWith("privileged_shell_") || command.startsWith("banking_compatibility_")) {
+            assertUserStorageReady();
+            assertConnectionReady();
+            switch (command) {
+                case "privileged_shell_prepare": return privilegedShell.prepare();
+                case "privileged_shell_status": return privilegedShell.status();
+                case "privileged_shell_exec":
+                    return privilegedShell.execute(
+                            args.getJSONArray("argv"),
+                            args.has("stdinBase64") ? args.getString("stdinBase64") : null,
+                            args.optLong("timeoutMillis", 60_000L));
+                case "banking_compatibility_status": return bankingCompatibility.status();
+                case "banking_compatibility_enable": return bankingCompatibility.enable();
+                case "banking_compatibility_disable": return bankingCompatibility.disable();
+                case "banking_compatibility_bootstrap_window": return bankingCompatibility.openBootstrapWindow();
+                case "banking_compatibility_close_bootstrap_window": return bankingCompatibility.closeBootstrapWindow();
+                default: throw new IllegalArgumentException("Unsupported privileged command");
+            }
         }
         if (command.startsWith("tv_remote_")) {
             assertUserStorageReady();

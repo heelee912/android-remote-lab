@@ -96,9 +96,19 @@ Without the configured ADB connection this path fails; it cannot bootstrap pairi
 
 Companion 1.2.0+ transports ADB inside its enrolled TLS connection to the Tailscale Funnel endpoint. The owner-scoped PC listener binds only loopback, accepts at most four ADB streams, and connects only this phone's loopback ADB service. Companion 1.2.1+ uses nonblocking reads and writes so backpressure cannot stop heartbeats or the opposite direction. Stream data is not written to audit logs. Loss of the owner lease or enrolled connection closes the tunnel; later owned commands reconnect using the existing PC ADB key. Physical serial verification remains mandatory before target execution. `system_input` uses this same route.
 
+Companion 1.2.30+ also supports a separate loopback privileged-shell broker.
+Bootstrap requires an already-authorized ADB shell and verifies that the broker
+runs as UID 2000. Banking mode then disables Android's ADB and developer-setting
+flags while retaining only `shell` and `exec-out` through the authenticated
+Companion route. It provides neither root nor native ADB services. A reboot
+removes the broker; relay maintenance may temporarily restore authorized ADB,
+recreate and verify the broker, then disable debugging again. Status must expose
+`shellReady` and `bootstrapRequired` rather than treating TLS readiness as shell
+readiness.
+
 `adb-status` reads the local listener without waking the display. `adb-status --repair` restores `adb_wifi_enabled` when the Companion holds `WRITE_SECURE_SETTINGS`; tunnel creation uses this grant automatically. Provision the grant through ADB when needed. Listener availability, PC authentication and screen state are separate results. Companion 1.2.1+ also uses a provisioned TCP listener (`adb tcpip 5555`), which survives Wi-Fi transitions until an ADB/phone restart. TCP mode listens on local interfaces with ADB-key authentication; the outer ARLab TLS encrypts remote traffic. Mobile-only TLS restoration after reboot depends on Android network behavior and device verification.
 
-`adb [ARLab flags] -- COMMAND [ARGS...]` executes native ADB commands through the relay's per-device queue. Device commands use the configured hardware binding selected by `--device DEVICE_ID` before `--`. Native PC host commands (`connect`, `disconnect`, `pair`, `start-server`, `kill-server`, `server`, `nodaemon`, `keygen`, `reconnect`, `attach`, `detach`, `devices`, `version`, `help`, `host-features`, `server-status`, `mdns`) execute unchanged without a phone transport probe. `files list|stat|read REMOTE`, `files pull REMOTE LOCAL`, and `files push LOCAL REMOTE` use device ADB. Android determines file access; private files can use `run-as`, existing root or app export.
+`adb [ARLab flags] -- COMMAND [ARGS...]` executes native ADB commands through the relay's per-device queue. `--adb-route privileged` accepts only `shell` and `exec-out` and returns `connectionRoute: privileged-shell`. Device commands use the configured hardware binding selected by `--device DEVICE_ID` before `--`. Native PC host commands (`connect`, `disconnect`, `pair`, `start-server`, `kill-server`, `server`, `nodaemon`, `keygen`, `reconnect`, `attach`, `detach`, `devices`, `version`, `help`, `host-features`, `server-status`, `mdns`) execute unchanged without a phone transport probe. `files list|stat|read REMOTE`, `files pull REMOTE LOCAL`, and `files push LOCAL REMOTE` use device ADB. Android determines file access; private files can use `run-as`, existing root or app export.
 
 `adb --args-file LOCAL_JSON` accepts a UTF-8 (optional BOM) JSON argument array; `adb --shell-file LOCAL_SCRIPT` accepts one complete Android shell script. Both exclude inline command arguments and each other. Use these for PowerShell loops rather than collapsing an array into a single command token. `files read --as-package PACKAGE` selects Android `run-as`; `files read --as-root` selects an already authorized `su` identity and verifies UID 0. Neither mode changes the app or grants new privileges. Binary delegated reads use local private temporary storage and never shared phone storage.
 

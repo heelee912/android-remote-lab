@@ -66,6 +66,35 @@ dispatching the caller command. `adb-status` exposes `mobileRecoveryRunning` and
 testing reboot; the bootstrap depends on Android's implementation. The temporary
 hotspot closes after completion, failure, deadline or Companion disconnect.
 
+Companion 1.2.30+ adds a rootless privileged-shell channel for banking-app
+compatibility. Provision it once while an already-authorized ADB transport is
+available:
+
+```powershell
+arlab device privileged-shell-bootstrap --json
+arlab device banking-mode enable --json
+arlab device adb --adb-route privileged --json -- shell id
+arlab device banking-mode status --json
+```
+
+The bootstrap launches `PrivilegedShellBroker` as Android's real `shell` UID
+(2000). The broker binds only the device loopback address and requires a random
+256-bit capability on every request. Companion verifies UID 2000 before banking
+mode turns off `adb_enabled`, `adb_wifi_enabled`, and the visible developer
+settings flag. `adb shell` and `exec-out` requests then travel through the
+authenticated Companion connection without restarting adbd. `banking-mode
+disable` restores the exact values saved on entry.
+
+This route preserves Android shell permissions, not root, and does not patch or
+hook a banking app. Native ADB services such as `install`, `forward`, pairing,
+and sync file transfer still require adbd; banking mode fails those commands
+instead of silently re-enabling debugging. A stock Android reboot removes every
+shell-UID child process. When the PC relay and Companion are online, the relay
+opens a bounded ADB bootstrap window, recreates the broker, verifies UID 2000,
+and closes debugging again. Until that verified recovery completes, status
+reports `bootstrapRequired`; it never claims shell readiness from Companion
+connectivity alone.
+
 On the automatic and Companion routes, a recovered TLS-only ADB listener is
 verified against the enrolled hardware and provisioned with `adb tcpip 5555`
 before the caller command. The relay polls the actual TCP listener after adbd
@@ -156,6 +185,14 @@ pass through unchanged. Select device commands with `--device DEVICE_ID` before
 transport probe. Paths in `files` commands are
 quoted for Android and must be absolute. Private app data retains Android's
 permissions: `run-as` requires a debuggable package or an existing privileged route.
+
+While banking mode is enabled, automatic routing sends only `shell` and
+`exec-out` through the privileged-shell channel. Use `--adb-route privileged`
+to require that route explicitly. The result reports
+`connectionRoute: privileged-shell`, so callers can distinguish it from direct
+or tunneled native ADB. Timeouts remain unconfirmed outcomes, binary output uses
+the existing exclusive `--output` contract, and command arguments are retained
+as an array rather than concatenated into a host shell command.
 
 For PowerShell loops and arguments containing spaces, write a UTF-8 JSON array
 such as `["shell","echo","space value"]` to a local file and use

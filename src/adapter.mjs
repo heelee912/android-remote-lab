@@ -121,8 +121,8 @@ function snapshot(session, json) {
 function usage() {
   process.stdout.write([
     'agent-device-companion <command> [args] [--session name] [--json]',
-    'Commands: devices, capabilities, connection, diagnostics, adb-status, adb-pair, adb-bind, tv-remote-status, tv-remote-pair, tv-remote-confirm, tv-remote-press, wake, open, snapshot, press, click, fill, swipe, home, back, app-switcher, screenshot, install, install-status, adb, files, close',
-    'ADB: adb [--json] [--timeout-ms 60000] [--output LOCAL_FILE] [--input-file LOCAL_FILE] -- COMMAND [ARGS...]',
+    'Commands: devices, capabilities, connection, diagnostics, adb-status, adb-pair, adb-bind, privileged-shell-bootstrap, privileged-shell-status, banking-mode, tv-remote-status, tv-remote-pair, tv-remote-confirm, tv-remote-press, wake, open, snapshot, press, click, fill, swipe, home, back, app-switcher, screenshot, install, install-status, adb, files, close',
+    'ADB: adb [--adb-route auto|direct|companion|privileged] [--json] [--timeout-ms 60000] [--output LOCAL_FILE] [--input-file LOCAL_FILE] -- COMMAND [ARGS...]',
     'First remote ADB authorization: adb-pair SIX_DIGIT_CODE (pairing screen must be open on the selected Android device)',
     'Resume after successful pairing: adb-bind (connects through Companion and saves the verified hardware identity)',
     'Android TV remote: tv-remote-pair, tv-remote-confirm SIX_HEX_CODE, tv-remote-press dpad_center|dpad_up|dpad_down|dpad_left|dpad_right|back|home|enter|menu',
@@ -145,8 +145,8 @@ const json = parsed.flags.has('--json');
 const session = safeSession(parsed.values.get('--session'));
 const inputTransport = parsed.values.get('--input') || 'accessibility';
 if (parsed.values.has('--adb-route') && (!['adb', 'files'].includes(command)
-    || !['auto', 'direct', 'companion'].includes(parsed.values.get('--adb-route')))) {
-  fail('--adb-route requires adb/files and one of auto, direct, companion');
+    || !['auto', 'direct', 'companion', 'privileged'].includes(parsed.values.get('--adb-route')))) {
+  fail('--adb-route requires adb/files and one of auto, direct, companion, privileged');
 }
 if (!['accessibility', 'adb'].includes(inputTransport)) fail('--input must be accessibility or adb');
 if (inputTransport === 'adb' && !['click', 'press', 'swipe'].includes(command)) fail('--input adb supports coordinate click/press and swipe only');
@@ -245,13 +245,13 @@ switch (command) {
     break;
   }
   case 'capabilities':
-    emit({ availableCommands: ['diagnostics', 'adb-status', 'adb-pair', 'adb-bind', 'tv-remote-status', 'tv-remote-pair', 'tv-remote-confirm', 'tv-remote-press', 'wake', 'open', 'snapshot', 'press', 'click', 'fill', 'swipe', 'home', 'back', 'app-switcher', 'screenshot', 'install', 'install-status', 'adb', 'files', 'close'],
+    emit({ availableCommands: ['diagnostics', 'adb-status', 'adb-pair', 'adb-bind', 'privileged-shell-bootstrap', 'privileged-shell-status', 'banking-mode', 'tv-remote-status', 'tv-remote-pair', 'tv-remote-confirm', 'tv-remote-press', 'wake', 'open', 'snapshot', 'press', 'click', 'fill', 'swipe', 'home', 'back', 'app-switcher', 'screenshot', 'install', 'install-status', 'adb', 'files', 'close'],
       adb: { transport: 'companion-tunnel (Companion 1.2.0+) or configured direct ADB', deviceBinding: 'hardware-serial',
         status: 'adb-status [--repair]', minimumTunnelVersionCode: 16,
         firstRemotePairing: 'adb-pair SIX_DIGIT_CODE; adb-bind resumes a successful pair if binding was interrupted',
         minimumPairingVersionCode: 26,
         routeSelection: 'auto: verified direct ADB, then Companion tunnel on pre-dispatch connection failure',
-        routeOverride: '--adb-route auto|direct|companion',
+        routeOverride: '--adb-route auto|direct|companion|privileged (privileged supports shell/exec-out)',
         requiresUnlockedScreen: false, requiresDisplayWake: false,
         fileActions: ['list', 'stat', 'read', 'pull', 'push'], maximumTimeoutMs: 600000,
         privateFiles: 'Android shell permissions; run-as/root required for protected app data',
@@ -263,7 +263,13 @@ switch (command) {
         companionTunnelMinimumVersionCode: 36,
         directFallback: 'arlab tv pair --host TV_ADDRESS --device DEVICE_ID',
         usesAccessibility: false, usesAdb: false, inputReadback: 'request outcome is dispatch only; verify the TV state separately' },
-      background: { commands: ['adb', 'files', 'diagnostics', 'adb-status', 'install', 'install-status',
+      privilegedShell: { minimumCompanionVersionCode: 46,
+        bootstrap: 'privileged-shell-bootstrap (uses one already-authorized ADB session)',
+        bankingMode: 'banking-mode enable|disable|status',
+        identity: 'Android shell UID 2000, verified before debugging settings are disabled',
+        limitations: 'rootless broker must be bootstrapped again after reboot' },
+      background: { commands: ['adb', 'files', 'diagnostics', 'adb-status', 'privileged-shell-bootstrap',
+        'privileged-shell-status', 'banking-mode', 'install', 'install-status',
         'tv-remote-status', 'tv-remote-pair', 'tv-remote-confirm', 'tv-remote-press'], automatic: true,
         session: 'arlab session start --background', preflight: 'arlab doctor --background --json',
         readiness: 'BACKGROUND_READY', uiReadinessSeparate: true } }, json);
@@ -286,6 +292,20 @@ switch (command) {
   case 'adb-bind':
     emit(parseCompanionJson(['adb-bind']), json);
     break;
+  case 'privileged-shell-bootstrap':
+    emit(parseCompanionJson(['privileged-shell-bootstrap']), json);
+    break;
+  case 'privileged-shell-status':
+    emit(parseCompanionJson(['privileged-shell-status']), json);
+    break;
+  case 'banking-mode': {
+    const action = String(args[0] || 'status').toLowerCase();
+    if (!['status', 'enable', 'disable'].includes(action) || args.length > 1) {
+      fail('banking-mode requires enable, disable, or status');
+    }
+    emit(parseCompanionJson([`banking-${action}`]), json);
+    break;
+  }
   case 'files': fileCommand(args); break;
   case 'connection':
   case 'status':
