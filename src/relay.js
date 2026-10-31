@@ -10,6 +10,7 @@ const { systemInput } = require('./system-input.js');
 const { createAdbTunnel, provisionTcpListener } = require('./adb-tunnel.js');
 const { deviceAdb, isHostAdbCommand, runAdbProcess } = require('./adb-device.js');
 const { createAdbRouteSelection } = require('./adb-route.js');
+const { reconcileAdbPresence } = require('./adb-presence.js');
 
 if (process.argv[2]) process.env.ANDROID_REMOTE_LAB_CONFIG = process.argv[2];
 const config = loadConfig();
@@ -524,6 +525,22 @@ setInterval(() => {
     sendFrame(connection.socket, { type: 'ping', sentAt: Date.now() });
   }
 }, 10_000).unref();
+
+let adbPresenceRunning = false;
+async function restoreAdbPresence() {
+  if (adbPresenceRunning) return;
+  adbPresenceRunning = true;
+  try {
+    const result = await reconcileAdbPresence(config);
+    if (result.connected) log(`ADB transports restored count=${result.connected}`);
+  } catch (error) {
+    log(`ADB transport restoration error=${error.code || error.message || error.name}`);
+  } finally {
+    adbPresenceRunning = false;
+  }
+}
+setTimeout(restoreAdbPresence, 1_000).unref();
+setInterval(restoreAdbPresence, 30_000).unref();
 
 function authenticateApi(request) {
   return safeEqual(request.headers['x-companion-token'], apiToken);

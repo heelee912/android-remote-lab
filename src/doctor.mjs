@@ -122,6 +122,20 @@ export function classifyBackgroundState({ infrastructure, active, minimumCompani
   return 'BACKGROUND_READY';
 }
 
+export function assessDeviceReachability({ infrastructure, active }) {
+  if (!infrastructure) return { state: 'unknown', reason: 'pc-infrastructure-unhealthy',
+    automaticRecovery: 'repair-pc-infrastructure-only' };
+  if (active) return { state: 'online', reason: 'fresh-companion-heartbeat',
+    automaticRecovery: 'not-needed' };
+  return {
+    state: 'unreachable',
+    reason: 'no-companion-heartbeat-after-bounded-wait',
+    certainty: 'power-state-unverified',
+    possibleExternalCauses: ['powered-off', 'battery-empty', 'network-unavailable', 'companion-stopped'],
+    automaticRecovery: 'stop-do-not-loop',
+  };
+}
+
 export async function waitForDeviceReadiness(readStatus, initial, timeoutMs = 30_000) {
   const deviceId = initial.selectedDeviceId || initial.active?.deviceId;
   const deadline = Date.now() + timeoutMs;
@@ -180,12 +194,14 @@ export async function doctor({ repair = false, background = false } = {}) {
   const uiState = classifyState({ infrastructure, active: local.active, minimumCompanionVersionCode });
   const backgroundState = classifyBackgroundState({ infrastructure, active: local.active, minimumCompanionVersionCode });
   const state = background ? backgroundState : uiState;
+  const reachability = assessDeviceReachability({ infrastructure, active: local.active });
   if (wake?.ok && state !== 'READY') {
     run(process.execPath, [fileURLToPath(new URL('./client.js', import.meta.url)), 'session-stop']);
   }
   return {
     ok: background ? state === 'BACKGROUND_READY' : state === 'READY',
     state,
+    reachability,
     uiState,
     backgroundState,
     mode: background ? 'background' : 'interactive',

@@ -110,6 +110,24 @@ test('Android content permission exceptions are failures even when its native ex
   assert.equal(result.result.error, 'adb-android-command-failed');
   assert.match(result.result.stderr, /Permission Denial/);
 });
+test('Android service call reports a Binder exception without treating a negative return value as an exception', async () => {
+  const adb = fake();
+  const argv = ['shell', 'service', 'call', 'example', '109', 'i32', '0'];
+  for (const [stdout, expectedOk] of [
+    ["Result: Parcel(\n  0x00000000: ffffffff 00000021 006f004e 00610020 '....!...N.o. .a.'\n)", false],
+    ["Result: Parcel(\tfffffff1 00000003 006f004e '........N.o.')", false],
+    ["Result: Parcel(\t00000000 ffffffff '........')", true],
+    ["Result: Parcel(\t00000000 00000000 '........')", true],
+  ]) {
+    const result = await deviceAdb(config, deviceId, { argv }, () => true,
+      async (...args) => args[1].includes('service')
+        ? { exitCode: 0, stdout, stderr: '' } : adb.run(...args));
+    assert.equal(result.ok, expectedOk);
+    assert.equal(result.result.exitCode, 0);
+    assert.equal(result.result.stdout, stdout);
+    assert.equal(result.result.error, expectedOk ? undefined : 'adb-android-command-failed');
+  }
+});
 test('rotated wireless port reconnects only the advertised selected hardware and verifies it', async () => {
   for (const hardware of ['WIRELESS_PHONE', 'WRONG_PHONE']) {
     const id = (hardware === 'WIRELESS_PHONE' ? 'b' : 'c').repeat(32);

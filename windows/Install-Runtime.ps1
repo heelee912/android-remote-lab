@@ -66,6 +66,7 @@ Copy-WithRetry (Join-Path $PackageRoot 'src\system-input.js') (Join-Path $runtim
 Copy-WithRetry (Join-Path $PackageRoot 'src\adb-device.js') (Join-Path $runtime 'adb-device.js')
 Copy-WithRetry (Join-Path $PackageRoot 'src\adb-tunnel.js') (Join-Path $runtime 'adb-tunnel.js')
 Copy-WithRetry (Join-Path $PackageRoot 'src\adb-route.js') (Join-Path $runtime 'adb-route.js')
+Copy-WithRetry (Join-Path $PackageRoot 'src\adb-presence.js') (Join-Path $runtime 'adb-presence.js')
 Copy-WithRetry (Join-Path $PackageRoot 'windows\CompanionRelayLauncher.exe') (Join-Path $runtime 'CompanionRelayLauncher.exe')
 
 $config = [ordered]@{

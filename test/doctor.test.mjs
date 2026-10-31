@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { classifyState, classifyBackgroundState, waitForDeviceReadiness } from '../src/doctor.mjs';
+import {
+  assessDeviceReachability, classifyState, classifyBackgroundState, waitForDeviceReadiness,
+} from '../src/doctor.mjs';
 
 assert.equal(classifyState({ infrastructure: false, active: null }), 'INFRASTRUCTURE_UNHEALTHY');
 assert.equal(classifyState({ infrastructure: true, active: null }), 'WAITING_FOR_PHONE');
@@ -39,6 +41,15 @@ for (const active of [
 assert.equal(classifyBackgroundState({ infrastructure: false, active: { versionCode: 15 } }), 'INFRASTRUCTURE_UNHEALTHY');
 assert.equal(classifyBackgroundState({ infrastructure: true, active: null }), 'WAITING_FOR_PHONE');
 assert.equal(classifyBackgroundState({ infrastructure: true, active: { versionCode: null } }), 'CONNECTED_UNVERIFIED');
+assert.deepEqual(assessDeviceReachability({ infrastructure: true, active: null }), {
+  state: 'unreachable',
+  reason: 'no-companion-heartbeat-after-bounded-wait',
+  certainty: 'power-state-unverified',
+  possibleExternalCauses: ['powered-off', 'battery-empty', 'network-unavailable', 'companion-stopped'],
+  automaticRecovery: 'stop-do-not-loop',
+});
+assert.equal(assessDeviceReachability({ infrastructure: true, active: { versionCode: 7 } }).state,
+  'online');
 let readCount = 0;
 const reconnected = await waitForDeviceReadiness(async () => {
   readCount++;

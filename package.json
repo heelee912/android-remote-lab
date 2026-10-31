@@ -36,10 +36,10 @@
   ],
   "scripts": {
     "build-launcher": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File windows/Build-Launcher.ps1",
-    "check": "node --check src/relay.js && node --check src/client.js && node --check src/system-input.js && node --check src/adb-device.js && node --check src/adb-tunnel.js && node --check src/adb-route.js && node --check src/adapter.mjs && node --check src/tv-remote-direct.mjs && node --check bin/arlab.mjs && node --check bin/arlab-tv.mjs",
+    "check": "node --check src/relay.js && node --check src/client.js && node --check src/system-input.js && node --check src/adb-device.js && node --check src/adb-tunnel.js && node --check src/adb-route.js && node --check src/adb-presence.js && node --check src/adapter.mjs && node --check src/tv-remote-direct.mjs && node --check bin/arlab.mjs && node --check bin/arlab-tv.mjs",
     "install": "npm run validate-launcher",
     "prepare": "npm run build-launcher",
-    "test": "node test/relay.test.js && node test/client-session.test.js && node test/client-install.test.js && node test/doctor.test.mjs && node test/wake.test.mjs && node test/selector.test.js && node --test test/android-manifest.test.mjs test/system-input.test.js test/adb-device.test.js test/adb-tunnel.test.js test/adb-route.test.js test/adb-cli.test.mjs test/tv-remote-direct.test.mjs",
+    "test": "node test/relay.test.js && node test/client-session.test.js && node test/client-install.test.js && node test/doctor.test.mjs && node test/wake.test.mjs && node test/selector.test.js && node --test test/android-manifest.test.mjs test/system-input.test.js test/adb-device.test.js test/adb-tunnel.test.js test/adb-route.test.js test/adb-presence.test.js test/adb-cli.test.mjs test/tv-remote-direct.test.mjs",
     "validate-launcher": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File windows/Verify-Launcher.ps1",
     "validate-powershell": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File test/validate-powershell.ps1",
     "validate-skill": "node test/validate-skill.mjs",

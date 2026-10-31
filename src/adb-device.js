@@ -270,6 +270,14 @@ async function deviceAdb(config, deviceId, input, stillOwnsDevice, run = runAdbP
       && /^(?:Error while accessing provider:|Error: java\.lang\.SecurityException|java\.lang\.SecurityException:|Exception occurred while executing)/m.test(result.stderr)) {
     result.error = 'adb-android-command-failed';
   }
+  // `service call` prints Binder exceptions in a Parcel and may still exit 0.
+  // The exception marker is the first word; a later negative return value is
+  // ordinary method data and must not be classified as an exception.
+  const serviceCall = shellTool === 'service' && request.argv.includes('call');
+  if (serviceCall && result.exitCode === 0
+      && /^Result:\s*Parcel\(\s*(?:0x0+:\s*)?fffffff[1-9a-f]\b/im.test(result.stdout)) {
+    result.error = 'adb-android-command-failed';
+  }
   return { ok: !result.error && result.exitCode === 0, result: { transport: 'adb', deviceId,
     connectionRoute: binding.route || 'configured-direct', ...result } };
 }
