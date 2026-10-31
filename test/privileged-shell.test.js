@@ -91,7 +91,7 @@ test('bootstraps through authorized ADB without returning the capability', async
     return { ok: true, result: { ready: true, uid: 2000, pid: 1234 } };
   });
   assert.equal(statusReads, 2);
-  assert.match(adbRequest.argv[1], /app_process/);
+  assert.match(adbRequest.argv[1], /nohup setsid app_process/);
   assert.match(adbRequest.argv[1], new RegExp(token));
   assert.equal(JSON.stringify(result).includes(token), false);
   assert.deepEqual(result, { ok: true, result: {

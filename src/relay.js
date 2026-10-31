@@ -12,6 +12,7 @@ const { deviceAdb, isHostAdbCommand, runAdbProcess } = require('./adb-device.js'
 const { createAdbRouteSelection } = require('./adb-route.js');
 const { reconcileAdbPresence } = require('./adb-presence.js');
 const { bootstrapPrivilegedShell, executePrivilegedShell, isPrivilegedShellRequest } = require('./privileged-shell.js');
+const { executeInBankingDebugWindow } = require('./banking-debug-window.js');
 
 if (process.argv[2]) process.env.ANDROID_REMOTE_LAB_CONFIG = process.argv[2];
 const config = loadConfig();
@@ -534,7 +535,6 @@ async function restoreAdbPresence() {
   try {
     const result = await reconcileAdbPresence(config);
     if (result.connected) log(`ADB transports restored count=${result.connected}`);
-    await restorePrivilegedShells();
   } catch (error) {
     log(`ADB transport restoration error=${error.code || error.message || error.name}`);
   } finally {
@@ -598,7 +598,7 @@ function invokeCommand(deviceId, command, args, timeoutMs) {
 
 async function bankingCompatibilityStatus(deviceId) {
   const target = connections.get(deviceId);
-  if (!target || Number(target.versionCode || 0) < 47) return { supported: false, enabled: false };
+  if (!target || Number(target.versionCode || 0) < 48) return { supported: false, enabled: false };
   const response = await invokeCommand(deviceId, 'banking_compatibility_status', {}, 5_000);
   return response.ok ? { supported: true, ...response.result } : { supported: true, enabled: false, error: response.error };
 }
@@ -611,12 +611,11 @@ async function executeAdbCommand(deviceId, owner, request, stillOwnsDevice) {
   const banking = request.route === 'auto' || request.route === undefined
     ? await bankingCompatibilityStatus(deviceId) : { enabled: false };
   if (banking.enabled) {
-    if (!isPrivilegedShellRequest(request)) {
-      return { ok: false, result: { transport: 'privileged-shell', connectionRoute: 'privileged-shell',
-        exitCode: 1, stdout: '', stderr: 'Banking mode keeps native ADB disabled; use an adb shell or exec-out command.',
-        error: 'banking-mode-supports-shell-only' } };
-    }
-    return executePrivilegedShell(request, invoke);
+    return executeInBankingDebugWindow(
+      banking,
+      () => invokeCommand(deviceId, 'banking_compatibility_bootstrap_window', {}, 10_000),
+      () => executeDeviceAdb(deviceId, owner, request, stillOwnsDevice),
+      () => invokeCommand(deviceId, 'banking_compatibility_close_bootstrap_window', {}, 10_000));
   }
   return executeDeviceAdb(deviceId, owner, request, stillOwnsDevice);
 }
@@ -625,50 +624,6 @@ async function bootstrapDevicePrivilegedShell(deviceId, owner, stillOwnsDevice) 
   return bootstrapPrivilegedShell(
     request => executeDeviceAdb(deviceId, owner, request, stillOwnsDevice),
     (command, args, timeoutMs) => invokeCommand(deviceId, command, args, timeoutMs));
-}
-
-async function restorePrivilegedShells() {
-  for (const [deviceId, target] of connections) {
-    if (Number(target.versionCode || 0) < 47) continue;
-    const existingLease = controlLeases.get(deviceId);
-    // A display lease may be in the middle of interactive work. A background
-    // lease already authorizes non-UI maintenance and must not postpone reboot
-    // recovery until its (possibly hours-away) expiry.
-    if (existingLease && !existingLease.background) continue;
-    let status;
-    try {
-      status = await bankingCompatibilityStatus(deviceId);
-      if (!status.enabled || !status.bootstrapRequired) continue;
-      const currentLease = controlLeases.get(deviceId);
-      if (currentLease && !currentLease.background) continue;
-      const owner = currentLease?.owner || `banking-shell-recovery-${deviceId}`;
-      let acquiredForRecovery = false;
-      if (!currentLease) {
-        const acquired = await startControlLease(deviceId, 5 * 60_000, owner, false, false, true);
-        if (!acquired.ok) continue;
-        acquiredForRecovery = true;
-      }
-      try {
-        await invokeCommand(deviceId, 'banking_compatibility_bootstrap_window', {}, 10_000);
-        const ready = await bootstrapDevicePrivilegedShell(deviceId, owner,
-          () => ownerControlsDevice(deviceId, owner) && Boolean(connections.get(deviceId)?.socket
-            && !connections.get(deviceId).socket.destroyed));
-        if (!ready.ok) throw new Error(ready.error || ready.result?.error || 'privileged-shell-recovery-failed');
-        const closed = await invokeCommand(deviceId, 'banking_compatibility_enable', {}, 10_000);
-        if (!closed.ok) throw new Error(closed.error || 'banking-compatibility-restore-failed');
-        log(`privileged shell restored device=${deviceId}`);
-      } catch (error) {
-        log(`privileged shell recovery error device=${deviceId} error=${error.code || error.message || error.name}`);
-        await invokeCommand(deviceId, 'banking_compatibility_close_bootstrap_window', {}, 10_000).catch(() => {});
-      } finally {
-        if (acquiredForRecovery) {
-          stopControlLease(deviceId, false, 'banking-shell-recovery-complete');
-        }
-      }
-    } catch (error) {
-      log(`privileged shell status error device=${deviceId} error=${error.code || error.message || error.name}`);
-    }
-  }
 }
 
 async function startControlLease(deviceId, requestedMillis, requestedOwner, force = false, displayOnly = false, background = false) {

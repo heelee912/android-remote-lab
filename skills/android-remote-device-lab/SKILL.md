@@ -143,23 +143,15 @@ Enrollment for unattended use also sets and reads back
 keys do not expire during idle periods. Unknown keys still require Android's own
 authorization. This setting is independent of screen-lock credentials.
 
-Companion 1.2.31+ can retain Android `shell` UID commands while the visible
-debugging settings are off. Run `arlab device privileged-shell-bootstrap --json`
-once through an already-authorized ADB route, then `arlab device banking-mode
-enable --json`. The device-side broker binds only loopback, authenticates every
-request with a random capability held by Companion, and must report UID 2000
-before the settings transition is accepted. `arlab device adb --adb-route
-privileged --json -- shell id` requires this route; normal automatic routing
-also selects it for `shell` and `exec-out` while banking mode is enabled.
-
-This is a rootless shell channel, not root and not an app hook. Native ADB
-services such as install, forward, pair and sync are unavailable while adbd is
-off; the relay reports that boundary rather than silently turning debugging on.
-After reboot the stock OS removes the shell process. If Companion and the PC
-relay are online, maintenance recovery briefly opens the existing authorized
-ADB bootstrap, recreates and verifies the broker, and closes debugging again.
-Read `banking-mode status`; `bootstrapRequired` and `shellReady` are separate
-facts, and Companion connectivity alone is not shell proof.
+Companion 1.2.32+ provides banking compatibility without root or banking-app
+patches. `banking-mode enable` saves the original settings and keeps ADB and the
+developer flag off between commands. On automatic ADB commands, the relay opens
+a bounded authorized debug window only when a known launcher/system package is
+foreground, executes the native command, and closes the window even on failure.
+It refuses the window while a banking or other user app is foreground. This
+retains shell, install, forward, pair, and sync functionality without claiming
+that a shell process survives `adb_enabled=0`; stock Samsung firmware kills it.
+`banking-mode disable` restores the exact saved values.
 
 Automatic and Companion ADB routes prepare a recovered TLS-only listener for
 mobile use with a hardware-verified `adb tcpip 5555`, poll the actual TCP port,

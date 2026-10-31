@@ -90,7 +90,10 @@ async function bootstrapPrivilegedShell(executeAdb, invokeCompanion) {
       || !/^com\.codex\.remotecompanion\.[A-Za-z0-9_$]+$/.test(mainClass || '')) {
     throw new Error('privileged-shell-invalid-bootstrap-configuration');
   }
-  const script = `CLASSPATH=${quoteShell(classpath)} nohup app_process /system/bin ${quoteShell(mainClass)}`
+  // Android stops an adbd session's process group when debugging is disabled.
+  // setsid creates an independent session before app_process starts; nohup alone
+  // only ignores SIGHUP and does not leave that process group.
+  const script = `CLASSPATH=${quoteShell(classpath)} nohup setsid app_process /system/bin ${quoteShell(mainClass)}`
     + ` --port ${port} --token ${token} </dev/null >/dev/null 2>&1 &`;
   const started = await executeAdb({ argv: ['shell', script], timeoutMs: 20_000, route: 'auto' });
   if (!started.ok) return started;

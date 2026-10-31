@@ -26,10 +26,6 @@ final class BankingCompatibility {
 
     JSONObject enable() throws Exception {
         assertCanChangeSettings();
-        JSONObject broker = shell.status();
-        if (!broker.optBoolean("ready") || broker.optInt("uid", -1) != 2000) {
-            throw new IllegalStateException("Verified Android shell broker is required");
-        }
         SharedPreferences preferences = preferences();
         if (!preferences.getBoolean(ENABLED, false)) {
             preferences.edit()
@@ -62,7 +58,6 @@ final class BankingCompatibility {
     JSONObject openBootstrapWindow() throws Exception {
         assertCanChangeSettings();
         if (!preferences().getBoolean(ENABLED, false)) return status().put("bootstrapOpened", false);
-        if (shell.status().optBoolean("ready")) return status().put("bootstrapOpened", false);
         write("development_settings_enabled", 1);
         write("adb_enabled", 1);
         return status().put("bootstrapOpened", true);
@@ -80,6 +75,9 @@ final class BankingCompatibility {
     JSONObject status() throws Exception {
         JSONObject broker = shell.status();
         boolean enabled = preferences().getBoolean(ENABLED, false);
+        String foregroundPackage = null;
+        ControlAccessibilityService accessibility = ControlAccessibilityService.getInstance();
+        if (accessibility != null) foregroundPackage = accessibility.status().optString("packageName", null);
         return new JSONObject()
                 .put("enabled", enabled)
                 .put("adbEnabled", read("adb_enabled") != 0)
@@ -87,7 +85,9 @@ final class BankingCompatibility {
                 .put("developmentSettingsEnabled", read("development_settings_enabled") != 0)
                 .put("shellReady", broker.optBoolean("ready"))
                 .put("shellUid", broker.optInt("uid", -1))
-                .put("bootstrapRequired", enabled && !broker.optBoolean("ready"));
+                .put("foregroundPackage", foregroundPackage == null ? JSONObject.NULL : foregroundPackage)
+                .put("screenInteractive", DeviceReadiness.interactive(context))
+                .put("debugWindowClosed", enabled && read("adb_enabled") == 0);
     }
 
     private void restoreSavedSettings() throws Exception {

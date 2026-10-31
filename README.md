@@ -66,34 +66,25 @@ dispatching the caller command. `adb-status` exposes `mobileRecoveryRunning` and
 testing reboot; the bootstrap depends on Android's implementation. The temporary
 hotspot closes after completion, failure, deadline or Companion disconnect.
 
-Companion 1.2.31+ adds a rootless privileged-shell channel for banking-app
-compatibility. Provision it once while an already-authorized ADB transport is
-available:
+Companion 1.2.32+ adds a banking-compatibility mode with bounded native ADB
+windows. Enable it while an already-authorized ADB transport is available:
 
 ```powershell
-arlab device privileged-shell-bootstrap --json
 arlab device banking-mode enable --json
-arlab device adb --adb-route privileged --json -- shell id
 arlab device banking-mode status --json
+arlab device adb --json -- shell id
 ```
 
-The bootstrap launches `PrivilegedShellBroker` as Android's real `shell` UID
-(2000). The broker binds only the device loopback address and requires a random
-256-bit capability on every request. Companion verifies UID 2000 before banking
-mode turns off `adb_enabled`, `adb_wifi_enabled`, and the visible developer
-settings flag. `adb shell` and `exec-out` requests then travel through the
-authenticated Companion connection without restarting adbd. `banking-mode
-disable` restores the exact values saved on entry.
-
-This route preserves Android shell permissions, not root, and does not patch or
-hook a banking app. Native ADB services such as `install`, `forward`, pairing,
-and sync file transfer still require adbd; banking mode fails those commands
-instead of silently re-enabling debugging. A stock Android reboot removes every
-shell-UID child process. When the PC relay and Companion are online, the relay
-opens a bounded ADB bootstrap window, recreates the broker, verifies UID 2000,
-and closes debugging again. Until that verified recovery completes, status
-reports `bootstrapRequired`; it never claims shell readiness from Companion
-connectivity alone.
+Banking mode stores the exact original values, then turns off `adb_enabled`,
+`adb_wifi_enabled`, and the visible developer flag. Stock Samsung firmware kills
+shell-UID children when ADB is disabled, so the relay does not pretend a daemon
+survives that transition. When the foreground is a known launcher or system UI,
+an automatic ADB command opens the existing authorized listener, runs the full
+native ADB command, and closes debugging in a `finally` path. It refuses the
+window while a banking or other user app is foreground. `banking-mode disable`
+restores the exact values saved on entry. This is rootless, does not patch a
+banking app, preserves install/forward/sync as well as shell commands, and keeps
+debugging off between commands and across reboot.
 
 On the automatic and Companion routes, a recovered TLS-only ADB listener is
 verified against the enrolled hardware and provisioned with `adb tcpip 5555`
