@@ -629,14 +629,25 @@ async function bootstrapDevicePrivilegedShell(deviceId, owner, stillOwnsDevice) 
 
 async function restorePrivilegedShells() {
   for (const [deviceId, target] of connections) {
-    if (Number(target.versionCode || 0) < 46 || controlLeases.has(deviceId)) continue;
+    if (Number(target.versionCode || 0) < 46) continue;
+    const existingLease = controlLeases.get(deviceId);
+    // A display lease may be in the middle of interactive work. A background
+    // lease already authorizes non-UI maintenance and must not postpone reboot
+    // recovery until its (possibly hours-away) expiry.
+    if (existingLease && !existingLease.background) continue;
     let status;
     try {
       status = await bankingCompatibilityStatus(deviceId);
-      if (!status.enabled || !status.bootstrapRequired || controlLeases.has(deviceId)) continue;
-      const owner = `banking-shell-recovery-${deviceId}`;
-      const acquired = await startControlLease(deviceId, 5 * 60_000, owner, false, false, true);
-      if (!acquired.ok) continue;
+      if (!status.enabled || !status.bootstrapRequired) continue;
+      const currentLease = controlLeases.get(deviceId);
+      if (currentLease && !currentLease.background) continue;
+      const owner = currentLease?.owner || `banking-shell-recovery-${deviceId}`;
+      let acquiredForRecovery = false;
+      if (!currentLease) {
+        const acquired = await startControlLease(deviceId, 5 * 60_000, owner, false, false, true);
+        if (!acquired.ok) continue;
+        acquiredForRecovery = true;
+      }
       try {
         await invokeCommand(deviceId, 'banking_compatibility_bootstrap_window', {}, 10_000);
         const ready = await bootstrapDevicePrivilegedShell(deviceId, owner,
@@ -650,7 +661,9 @@ async function restorePrivilegedShells() {
         log(`privileged shell recovery error device=${deviceId} error=${error.code || error.message || error.name}`);
         await invokeCommand(deviceId, 'banking_compatibility_close_bootstrap_window', {}, 10_000).catch(() => {});
       } finally {
-        stopControlLease(deviceId, false, 'banking-shell-recovery-complete');
+        if (acquiredForRecovery) {
+          stopControlLease(deviceId, false, 'banking-shell-recovery-complete');
+        }
       }
     } catch (error) {
       log(`privileged shell status error device=${deviceId} error=${error.code || error.message || error.name}`);
