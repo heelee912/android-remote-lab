@@ -15,6 +15,15 @@ function isSafeBankingDebugForeground(status = {}) {
     && safeForegroundPackages.has(status.foregroundPackage);
 }
 
+function bankingForegroundPackageToStop(status = {}) {
+  if (isSafeBankingDebugForeground(status) || status.foregroundPackage == null) return null;
+  if (typeof status.foregroundPackage !== 'string'
+      || !/^[A-Za-z0-9_.]{3,200}$/.test(status.foregroundPackage)) {
+    throw new Error('banking-foreground-package-invalid');
+  }
+  return status.foregroundPackage;
+}
+
 async function executeInBankingDebugWindow(status, openWindow, execute, closeWindow) {
   if (!isSafeBankingDebugForeground(status)) {
     const error = new Error('banking-app-or-user-app-active');
@@ -43,4 +52,4 @@ async function executeInBankingDebugWindow(status, openWindow, execute, closeWin
   return execution;
 }
 
-module.exports = { executeInBankingDebugWindow, isSafeBankingDebugForeground };
+module.exports = { bankingForegroundPackageToStop, executeInBankingDebugWindow, isSafeBankingDebugForeground };

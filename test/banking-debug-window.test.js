@@ -2,12 +2,21 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { executeInBankingDebugWindow, isSafeBankingDebugForeground } = require('../src/banking-debug-window.js');
+const { bankingForegroundPackageToStop, executeInBankingDebugWindow,
+  isSafeBankingDebugForeground } = require('../src/banking-debug-window.js');
 
 test('permits debug windows only on known system and launcher foregrounds', () => {
   assert.equal(isSafeBankingDebugForeground({ foregroundPackage: 'com.sec.android.app.launcher' }), true);
   assert.equal(isSafeBankingDebugForeground({ foregroundPackage: 'com.nonghyup.nhallonebank' }), false);
   assert.equal(isSafeBankingDebugForeground({ foregroundPackage: null }), false);
+});
+
+test('stops a foreground user app once before banking mode hides ADB', () => {
+  assert.equal(bankingForegroundPackageToStop({ foregroundPackage: 'com.nonghyup.nhallonebank' }),
+    'com.nonghyup.nhallonebank');
+  assert.equal(bankingForegroundPackageToStop({ foregroundPackage: 'com.sec.android.app.launcher' }), null);
+  assert.throws(() => bankingForegroundPackageToStop({ foregroundPackage: '../bad' }),
+    /banking-foreground-package-invalid/);
 });
 
 test('always closes the transient debug window after a native command', async () => {

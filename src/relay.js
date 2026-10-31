@@ -12,7 +12,7 @@ const { deviceAdb, isHostAdbCommand, runAdbProcess } = require('./adb-device.js'
 const { createAdbRouteSelection } = require('./adb-route.js');
 const { reconcileAdbPresence } = require('./adb-presence.js');
 const { bootstrapPrivilegedShell, executePrivilegedShell, isPrivilegedShellRequest } = require('./privileged-shell.js');
-const { executeInBankingDebugWindow } = require('./banking-debug-window.js');
+const { bankingForegroundPackageToStop, executeInBankingDebugWindow } = require('./banking-debug-window.js');
 
 if (process.argv[2]) process.env.ANDROID_REMOTE_LAB_CONFIG = process.argv[2];
 const config = loadConfig();
@@ -626,6 +626,23 @@ async function bootstrapDevicePrivilegedShell(deviceId, owner, stillOwnsDevice) 
     (command, args, timeoutMs) => invokeCommand(deviceId, command, args, timeoutMs));
 }
 
+async function enableBankingCompatibility(deviceId, owner, stillOwnsDevice) {
+  const status = await bankingCompatibilityStatus(deviceId);
+  if (status.enabled) {
+    return invokeCommand(deviceId, 'banking_compatibility_enable', {}, 10_000);
+  }
+  const packageToStop = bankingForegroundPackageToStop(status);
+  if (packageToStop) {
+    const stopped = await executeDeviceAdb(deviceId, owner, {
+      argv: ['shell', 'am', 'force-stop', packageToStop],
+      timeoutMs: 20_000,
+      route: 'auto',
+    }, stillOwnsDevice);
+    if (!stopped.ok) return stopped;
+  }
+  return invokeCommand(deviceId, 'banking_compatibility_enable', {}, 10_000);
+}
+
 async function startControlLease(deviceId, requestedMillis, requestedOwner, force = false, displayOnly = false, background = false) {
   const owner = normalizedOwner(requestedOwner);
   if (!owner) return { ok: false, error: 'control-owner-required' };
@@ -845,6 +862,8 @@ const api = http.createServer(async (request, response) => {
               && !connections.get(deviceId).socket.destroyed);
         const result = body.command === 'adb'
           ? await executeAdbCommand(deviceId, body.owner, body.args || {}, stillOwnsDevice)
+          : body.command === 'banking_compatibility_enable'
+          ? await enableBankingCompatibility(deviceId, body.owner, stillOwnsDevice)
           : body.command === 'privileged_shell_bootstrap'
           ? await bootstrapDevicePrivilegedShell(deviceId, body.owner, stillOwnsDevice)
           : body.command === 'adb_pair'

@@ -368,12 +368,6 @@ async function main() {
       result = await command('banking_compatibility_status', {});
       break;
     case 'banking-enable': {
-      const broker = await command('privileged_shell_bootstrap', {}, 90_000);
-      if (!broker.ok) {
-        result = broker;
-        process.exitCode = 1;
-        break;
-      }
       result = await command('banking_compatibility_enable', {}, 20_000);
       if (!result.ok) process.exitCode = 1;
       break;
