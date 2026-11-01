@@ -384,6 +384,14 @@ async function main() {
     assert.equal(persistentResult.status, 200);
     assert.equal(persistentResult.body.result.connectionRoute, 'companion-device-shell');
     assert.equal(persistentResult.body.result.executionIdentity.requiresAdbd, false);
+    const unsupportedPersistent = await request(apiPort, token, 'POST', '/command', {
+      command: 'adb', owner, args: { argv: ['forward', 'tcp:12345', 'tcp:12345'] },
+    });
+    assert.equal(unsupportedPersistent.status, 200);
+    assert.equal(unsupportedPersistent.body.ok, false);
+    assert.equal(unsupportedPersistent.body.result.error, 'persistent-device-shell-adapter-unavailable');
+    assert.equal(unsupportedPersistent.body.result.executionIdentity.requiresAdbd, false,
+      'an unsupported default command must fail without opening Android debugging');
     const backgroundInstall = request(apiPort, token, 'POST', '/command', {
       owner, command: 'install_status', args: { uploadId: '' },
     });

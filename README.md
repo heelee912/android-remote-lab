@@ -99,7 +99,9 @@ Companion 1.2.40+ answers `adb get-state` and `adb wait-for-device` from the
 authenticated Companion connection. Ordinary `adb install APK` and shared
 storage `adb push/pull` command forms use Companion's verified installer and
 byte-preserving shared-file channel; an explicit `--adb-route` retains native
-ADB behavior.
+ADB behavior. On a current Companion, an unadapted default device command fails
+as `persistent-device-shell-adapter-unavailable` instead of silently opening an
+ADB listener. Native host commands such as `adb version` remain local and unchanged.
 
 On the automatic and Companion routes, a recovered TLS-only ADB listener is
 verified against the enrolled hardware and provisioned with `adb tcpip 5555`

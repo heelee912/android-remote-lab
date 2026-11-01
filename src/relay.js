@@ -610,10 +610,26 @@ async function executeAdbCommand(deviceId, owner, request, stillOwnsDevice) {
   if (request.route === 'privileged') {
     return executePrivilegedShell(request, invoke);
   }
-  if (Number(connections.get(deviceId)?.versionCode || 0) >= persistentDeviceShellVersionCode
-      && isPersistentDeviceShellRequest(request)
-      && !['direct', 'companion'].includes(request.route)) {
-    return executePersistentDeviceShell(request, invoke);
+  if (isHostAdbCommand(request.argv)) {
+    return executeDeviceAdb(deviceId, owner, request, stillOwnsDevice);
+  }
+  const persistentOnly = Number(connections.get(deviceId)?.versionCode || 0) >= persistentDeviceShellVersionCode
+    && !['direct', 'companion'].includes(request.route);
+  if (persistentOnly) {
+    if (isPersistentDeviceShellRequest(request)) {
+      return executePersistentDeviceShell(request, invoke);
+    }
+    return { ok: false, result: {
+      transport: 'companion-device-shell',
+      connectionRoute: 'companion-device-shell',
+      executionIdentity: { kind: 'companion-application', requiresAdbd: false },
+      exitCode: 1,
+      signal: null,
+      stdout: '',
+      stderr: 'No persistent Companion adapter exists for this native ADB transport command. Select an explicit --adb-route only when Android debugging is intentionally allowed.',
+      error: 'persistent-device-shell-adapter-unavailable',
+      outcome: 'confirmed-failed',
+    } };
   }
   const banking = request.route === 'auto' || request.route === undefined
     ? await bankingCompatibilityStatus(deviceId) : { enabled: false };

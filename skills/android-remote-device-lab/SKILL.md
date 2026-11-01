@@ -161,7 +161,10 @@ Accessibility. Read the returned adapter and actual result before claiming succe
 Companion 1.2.40+ derives `get-state`/`wait-for-device` from the authenticated
 Companion connection and maps ordinary `adb install` plus shared-storage
 `adb push`/`adb pull` forms to Companion-native APIs. Use an explicit
-`--adb-route` only when native `adbd` behavior is intentionally required.
+`--adb-route` only when native `adbd` behavior is intentionally required. An
+unadapted default device command must return
+`persistent-device-shell-adapter-unavailable`; it must not open debugging as a
+fallback. Native host-only ADB commands remain local.
 
 Automatic and Companion ADB routes prepare a recovered TLS-only listener for
 mobile use with a hardware-verified `adb tcpip 5555`, poll the actual TCP port,

@@ -111,7 +111,9 @@ Accessibility. Secure-window and secure-keyguard enforcement still applies.
 Companion 1.2.40+ derives `get-state`/`wait-for-device` from the authenticated
 Companion connection and maps ordinary `adb install` plus shared-storage
 `adb push`/`adb pull` forms to Companion-native APIs unless the caller selects
-an explicit native ADB route.
+an explicit native ADB route. An unadapted default device command returns
+`persistent-device-shell-adapter-unavailable` without opening an ADB listener;
+native host-only ADB commands remain local.
 
 `adb-status` reads the local listener without waking the display. `adb-status --repair` restores `adb_wifi_enabled` when the Companion holds `WRITE_SECURE_SETTINGS`; tunnel creation uses this grant automatically. Provision the grant through ADB when needed. Listener availability, PC authentication and screen state are separate results. Companion 1.2.1+ also uses a provisioned TCP listener (`adb tcpip 5555`), which survives Wi-Fi transitions until an ADB/phone restart. TCP mode listens on local interfaces with ADB-key authentication; the outer ARLab TLS encrypts remote traffic. Mobile-only TLS restoration after reboot depends on Android network behavior and device verification.
 
