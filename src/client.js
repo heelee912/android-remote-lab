@@ -132,7 +132,9 @@ async function command(name, args = {}, timeoutMs = 20_000, maintainDisplayLease
           'diagnostics', 'ping', 'adb_tunnel_status',
           'tv_remote_status', 'tv_remote_pair_start', 'tv_remote_pair_finish', 'tv_remote_press',
           'tv_remote_tunnel_open', 'tv_remote_tunnel_close',
-          'install_begin', 'install_chunk', 'install_commit', 'install_status'].includes(name),
+          'install_begin', 'install_chunk', 'install_commit', 'install_status',
+          'shared_file_upload_begin', 'shared_file_upload_chunk', 'shared_file_upload_commit',
+          'shared_file_download_begin', 'shared_file_download_chunk'].includes(name),
         Math.max(1, reconnectDeadline - Date.now()));
       else if (!commandDeviceId) commandDeviceId = (await api('GET', '/status')).selectedDeviceId;
       submitted = true;
@@ -249,6 +251,94 @@ async function installApk(inputPath) {
     result: status || committed?.result || begin.result,
     ...(submissionError ? { submissionError } : {}),
   };
+}
+
+async function pushSharedFile(inputPath, destinationPath) {
+  const file = path.resolve(inputPath || '');
+  const details = fs.statSync(file, { throwIfNoEntry: false });
+  if (!details?.isFile()) usage('shared-file-push requires an existing local file');
+  if (!destinationPath?.startsWith('/')) usage('shared-file-push requires an absolute Android path');
+  const sha256 = await hashFile(file);
+  const begin = await command('shared_file_upload_begin', {
+    path: destinationPath, sizeBytes: details.size, sha256,
+  });
+  const uploadId = begin.result?.uploadId;
+  let offset = Number(begin.result?.receivedBytes || 0);
+  if (uploadId !== sha256 || offset < 0 || offset > details.size) {
+    throw new Error('Companion returned invalid shared upload state');
+  }
+  const descriptor = fs.openSync(file, 'r');
+  const buffer = Buffer.allocUnsafe(512 * 1024);
+  try {
+    while (offset < details.size) {
+      const count = fs.readSync(descriptor, buffer, 0,
+        Math.min(buffer.length, details.size - offset), offset);
+      if (count <= 0) throw new Error('Unexpected end of shared file');
+      const chunk = buffer.subarray(0, count);
+      const appended = await command('shared_file_upload_chunk', {
+        uploadId, offset, base64: chunk.toString('base64'),
+        chunkSha256: crypto.createHash('sha256').update(chunk).digest('hex'),
+      }, 30_000);
+      const received = Number(appended.result?.receivedBytes);
+      if (received !== offset + count) throw new Error('Companion shared upload offset diverged');
+      offset = received;
+    }
+  } finally { fs.closeSync(descriptor); }
+  const committed = await command('shared_file_upload_commit', { uploadId }, 120_000);
+  if (committed.result?.completed !== true || committed.result?.sha256 !== sha256
+      || Number(committed.result?.sizeBytes) !== details.size) {
+    throw new Error('Companion did not verify the committed shared file');
+  }
+  return { ok: true, transport: 'companion-shared-file', source: file,
+    destination: destinationPath, sizeBytes: details.size, sha256 };
+}
+
+async function pullSharedFile(sourcePath, outputPath) {
+  if (!sourcePath?.startsWith('/')) usage('shared-file-pull requires an absolute Android path');
+  const destination = path.resolve(outputPath || '');
+  if (fs.existsSync(destination)) throw new Error('Output file already exists');
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  const begin = await command('shared_file_download_begin', { path: sourcePath }, 120_000);
+  const sizeBytes = Number(begin.result?.sizeBytes);
+  const sha256 = begin.result?.sha256;
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0 || !/^[a-f0-9]{64}$/.test(sha256 || '')) {
+    throw new Error('Companion returned invalid shared download metadata');
+  }
+  const temporary = path.join(path.dirname(destination),
+    `.${path.basename(destination)}.arlab-${crypto.randomUUID()}.part`);
+  const descriptor = fs.openSync(temporary, 'wx');
+  const digest = crypto.createHash('sha256');
+  let offset = 0;
+  try {
+    try {
+      while (offset < sizeBytes) {
+        const response = await command('shared_file_download_chunk', { path: sourcePath, offset }, 30_000);
+        const chunk = Buffer.from(response.result?.base64 || '', 'base64');
+        const expected = response.result?.chunkSha256;
+        if (Number(response.result?.offset) !== offset || !chunk.length
+            || crypto.createHash('sha256').update(chunk).digest('hex') !== expected) {
+          throw new Error('Companion shared download chunk verification failed');
+        }
+        fs.writeSync(descriptor, chunk, 0, chunk.length, offset);
+        digest.update(chunk);
+        offset += chunk.length;
+        if (Number(response.result?.nextOffset) !== offset || offset > sizeBytes) {
+          throw new Error('Companion shared download offset diverged');
+        }
+      }
+    } finally { fs.closeSync(descriptor); }
+    if (offset !== sizeBytes || digest.digest('hex') !== sha256) {
+      throw new Error('Complete shared download digest mismatch');
+    }
+    fs.copyFileSync(temporary, destination, fs.constants.COPYFILE_EXCL);
+  } finally {
+    try {
+      if (fs.fstatSync(descriptor)) fs.closeSync(descriptor);
+    } catch { /* The descriptor was already closed. */ }
+    fs.rmSync(temporary, { force: true });
+  }
+  return { ok: true, transport: 'companion-shared-file', source: sourcePath,
+    destination, sizeBytes, sha256 };
 }
 
 function finite(value, label) {
@@ -437,6 +527,8 @@ async function main() {
     case 'install-status':
       result = await command('install_status', { uploadId: args[0] || '' });
       break;
+    case 'shared-file-push': result = await pushSharedFile(args[0], args[1]); break;
+    case 'shared-file-pull': result = await pullSharedFile(args[0], args[1]); break;
     case 'wake': result = await command('wake'); break;
     case 'diagnostics': result = await command('diagnostics'); break;
     case 'adb-status': result = await command('adb_tunnel_status', { repair: args.includes('--repair') }); break;

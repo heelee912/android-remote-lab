@@ -87,7 +87,8 @@ test('installed command shape preserves ADB flags, paths, binary options and non
       assert.equal(result.code, 2);
     }
     assert.equal(calls.length, beforeInvalidScope);
-    result = await run(['files', 'push', 'local space.bin', '/sdcard/remote space.bin', '--json']);
+    result = await run(['files', 'push', 'local space.bin', '/sdcard/remote space.bin',
+      '--adb-route', 'direct', '--json']);
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(calls.at(-1).args.argv, ['push', path.resolve('local space.bin'), '/sdcard/remote space.bin']);
     result = await run(['adb', '--json', '--', 'shell', 'denied']);

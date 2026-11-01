@@ -1,33 +1,27 @@
 'use strict';
 
-const safeForegroundPackages = new Set([
-  'com.android.launcher3',
-  'com.android.settings',
-  'com.android.systemui',
-  'com.codex.remotecompanion',
-  'com.google.android.apps.nexuslauncher',
-  'com.samsung.android.app.launcher',
-  'com.sec.android.app.launcher',
+const bankingForegroundPackages = new Set([
+  'com.nonghyup.nhallonebank',
 ]);
 
-function isSafeBankingDebugForeground(status = {}) {
+function isBankingAppForeground(status = {}) {
   return typeof status.foregroundPackage === 'string'
-    && safeForegroundPackages.has(status.foregroundPackage);
+    && bankingForegroundPackages.has(status.foregroundPackage);
 }
 
 function bankingForegroundPackageToStop(status = {}) {
-  if (isSafeBankingDebugForeground(status) || status.foregroundPackage == null) return null;
+  if (status.foregroundPackage == null) return null;
   if (typeof status.foregroundPackage !== 'string'
       || !/^[A-Za-z0-9_.]{3,200}$/.test(status.foregroundPackage)) {
     throw new Error('banking-foreground-package-invalid');
   }
-  return status.foregroundPackage;
+  return isBankingAppForeground(status) ? status.foregroundPackage : null;
 }
 
 async function executeInBankingDebugWindow(status, openWindow, execute, closeWindow) {
-  if (!isSafeBankingDebugForeground(status)) {
-    const error = new Error('banking-app-or-user-app-active');
-    error.code = 'banking-app-or-user-app-active';
+  if (isBankingAppForeground(status)) {
+    const error = new Error('banking-app-active');
+    error.code = 'banking-app-active';
     throw error;
   }
   const opened = await openWindow();
@@ -52,4 +46,4 @@ async function executeInBankingDebugWindow(status, openWindow, execute, closeWin
   return execution;
 }
 
-module.exports = { bankingForegroundPackageToStop, executeInBankingDebugWindow, isSafeBankingDebugForeground };
+module.exports = { bankingForegroundPackageToStop, executeInBankingDebugWindow, isBankingAppForeground };

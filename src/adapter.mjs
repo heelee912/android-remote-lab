@@ -175,6 +175,24 @@ function adbCommand(argv, extra = {}) {
   process.exitCode = child.status ?? 1;
 }
 
+function sharedFileCommand(action, source, destination) {
+  const child = spawnSync(process.execPath, [cli, `shared-file-${action}`, source, destination], {
+    cwd: process.cwd(), encoding: 'utf8', windowsHide: true, env: clientEnv,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (child.error) fail(child.error.message, 1);
+  if (child.status !== 0) fail(child.stderr.trim() || `shared file ${action} failed`, child.status || 1);
+  let response;
+  try { response = JSON.parse(child.stdout); }
+  catch { fail('invalid shared file response', 1); }
+  emit(response, json);
+}
+
+function isPrimarySharedPath(value) {
+  return value === '/sdcard' || value.startsWith('/sdcard/')
+    || value === '/storage/emulated/0' || value.startsWith('/storage/emulated/0/');
+}
+
 function adbArguments(args) {
   const argsFile = parsed.values.get('--args-file');
   const shellFile = parsed.values.get('--shell-file');
@@ -218,10 +236,16 @@ function fileCommand([action, source, destination, ...extra]) {
   if (!destination) fail('files pull/push requires source and destination');
   if (action === 'pull') {
     remotePath(source);
+    if (!parsed.values.has('--adb-route') && isPrimarySharedPath(source)) {
+      return sharedFileCommand('pull', source, path.resolve(destination));
+    }
     return adbCommand(['pull', source, path.resolve(destination)]);
   }
   if (action === 'push') {
     remotePath(destination);
+    if (!parsed.values.has('--adb-route') && isPrimarySharedPath(destination)) {
+      return sharedFileCommand('push', path.resolve(source), destination);
+    }
     return adbCommand(['push', path.resolve(source), destination]);
   }
   fail(`Unsupported file action: ${action}`);

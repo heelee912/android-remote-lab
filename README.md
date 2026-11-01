@@ -80,8 +80,9 @@ Banking mode stores the exact original values, then turns off `adb_enabled`,
 shell-UID children when ADB is disabled, so the relay does not pretend a daemon
 survives that transition. When the foreground is a known launcher or system UI,
 an automatic ADB command opens the existing authorized listener, runs the full
-native ADB command, and closes debugging in a `finally` path. It refuses the
-window while a banking or other user app is foreground. `banking-mode disable`
+native ADB command, and closes debugging in a `finally` path. Ordinary foreground
+apps do not block ADB commands or file transfers; only a configured banking app
+currently in the foreground blocks the transient window. `banking-mode disable`
 restores the exact values saved on entry. This is rootless, does not patch a
 banking app, preserves install/forward/sync as well as shell commands, and keeps
 debugging off between commands and across reboot.
@@ -153,6 +154,13 @@ touch input. The relay verifies the selected device's physical serial and active
 session owner before execution. Companion 1.2.0+ supplies the remote ADB route
 described above; earlier versions require their configured direct connection.
 The Companion's network identity does not replace Android's ADB authentication.
+
+Companion 1.2.36+ sends default `files push` and `files pull` operations for primary
+shared storage directly through the authenticated Companion TLS connection. This
+does not enable ADB, change the foreground app, or interrupt a banking app. The
+Companion must have Android's all-files special access; ARLab grants that app-op
+during the authorized upgrade. Pass an explicit `--adb-route` to require legacy
+native ADB transfer semantics instead.
 
 ```powershell
 arlab doctor --repair --json

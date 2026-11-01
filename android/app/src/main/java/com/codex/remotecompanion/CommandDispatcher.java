@@ -92,6 +92,29 @@ final class CommandDispatcher {
             }
         }
 
+        if (command.startsWith("shared_file_")) {
+            assertUserStorageReady();
+            assertConnectionReady();
+            switch (command) {
+                case "shared_file_upload_begin":
+                    return SharedFileTransfer.beginUpload(context, args.getString("path"),
+                            args.getLong("sizeBytes"), args.getString("sha256"));
+                case "shared_file_upload_chunk":
+                    return SharedFileTransfer.appendUpload(context, args.getString("uploadId"),
+                            args.getLong("offset"), args.getString("base64"),
+                            args.getString("chunkSha256"));
+                case "shared_file_upload_commit":
+                    return SharedFileTransfer.commitUpload(context, args.getString("uploadId"));
+                case "shared_file_download_begin":
+                    return SharedFileTransfer.beginDownload(context, args.getString("path"));
+                case "shared_file_download_chunk":
+                    return SharedFileTransfer.readDownloadChunk(context, args.getString("path"),
+                            args.getLong("offset"));
+                default:
+                    throw new IllegalArgumentException("Unsupported shared file command: " + command);
+            }
+        }
+
         if ("wake".equals(command)) {
             // Display-only wake never dismisses or authenticates any keyguard.
             assertConnectionReady();
