@@ -79,3 +79,22 @@ test('does not report Android permission text with exit code zero as success', a
   assert.equal(response.result.error, 'android-command-permission-denied');
   assert.equal(response.result.outcome, 'confirmed-failed');
 });
+
+test('permission text remains a failure when stdout is saved to a file', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'persistent-device-shell-denial-'));
+  const destination = path.join(directory, 'dump.txt');
+  try {
+    const response = await executePersistentDeviceShell({
+      argv: ['shell', 'dumpsys', 'package'], timeoutMs: 1_000, outputFile: destination,
+    }, async () => ({ ok: true, result: {
+      exitCode: 0,
+      stdoutBase64: Buffer.from('Permission Denial: missing android.permission.DUMP\n').toString('base64'),
+      stderrBase64: '',
+    } }));
+    assert.equal(response.ok, false);
+    assert.equal(response.result.error, 'android-command-permission-denied');
+    assert.match(fs.readFileSync(destination, 'utf8'), /Permission Denial/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

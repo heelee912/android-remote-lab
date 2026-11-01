@@ -21,6 +21,7 @@ function decodedExecution(result, request) {
   const stderr = Buffer.from(result.stderrBase64 || '', 'base64');
   if (request.outputFile) fs.writeFileSync(request.outputFile, stdout, { flag: 'wx', mode: 0o600 });
   const stdoutText = stdout.toString('utf8');
+  const stderrText = stderr.toString('utf8');
   const execution = {
     transport: 'companion-device-shell',
     connectionRoute: 'companion-device-shell',
@@ -33,12 +34,12 @@ function decodedExecution(result, request) {
         completed: Number(result.exitCode) === 0 && !result.error }
       : { stdout: stdoutText,
         ...(!stdout.equals(Buffer.from(stdoutText, 'utf8')) ? { stdoutBase64: stdout.toString('base64') } : {}) }),
-    stderr: stderr.toString('utf8'),
+    stderr: stderrText,
     ...(result.error ? { error: result.error, outcome: result.outcome || 'confirmed-failed' } : {}),
   };
   if (!execution.error && execution.exitCode === 0
       && /(?:Permission Denial|java\.lang\.SecurityException|Security exception)/i
-        .test(`${execution.stdout || ''}\n${execution.stderr || ''}`)) {
+        .test(`${stdoutText}\n${stderrText}`)) {
     execution.error = 'android-command-permission-denied';
     execution.outcome = 'confirmed-failed';
   }
