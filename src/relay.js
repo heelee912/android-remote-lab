@@ -11,7 +11,8 @@ const { createAdbTunnel, provisionTcpListener } = require('./adb-tunnel.js');
 const { deviceAdb, isHostAdbCommand, runAdbProcess } = require('./adb-device.js');
 const { createAdbRouteSelection } = require('./adb-route.js');
 const { reconcileAdbPresence } = require('./adb-presence.js');
-const { bootstrapPrivilegedShell, executePrivilegedShell, isPrivilegedShellRequest } = require('./privileged-shell.js');
+const { bootstrapPrivilegedShell, executePrivilegedShell } = require('./privileged-shell.js');
+const { executePersistentDeviceShell, isPersistentDeviceShellRequest } = require('./persistent-device-shell.js');
 const { bankingForegroundPackageToStop, executeInBankingDebugWindow } = require('./banking-debug-window.js');
 
 if (process.argv[2]) process.env.ANDROID_REMOTE_LAB_CONFIG = process.argv[2];
@@ -20,6 +21,7 @@ const adbTunnels = new Map();
 const tvTunnels = new Map();
 const selectAdbRoute = createAdbRouteSelection();
 const adbOperationTimeoutMs = 30_000;
+const persistentDeviceShellVersionCode = 53;
 
 async function executeDeviceAdb(deviceId, owner, request, owns) {
   let dispatched = false;
@@ -607,6 +609,11 @@ async function executeAdbCommand(deviceId, owner, request, stillOwnsDevice) {
   const invoke = (command, args, timeoutMs) => invokeCommand(deviceId, command, args, timeoutMs);
   if (request.route === 'privileged') {
     return executePrivilegedShell(request, invoke);
+  }
+  if (Number(connections.get(deviceId)?.versionCode || 0) >= persistentDeviceShellVersionCode
+      && isPersistentDeviceShellRequest(request)
+      && !['direct', 'companion'].includes(request.route)) {
+    return executePersistentDeviceShell(request, invoke);
   }
   const banking = request.route === 'auto' || request.route === undefined
     ? await bankingCompatibilityStatus(deviceId) : { enabled: false };

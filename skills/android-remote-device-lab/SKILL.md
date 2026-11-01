@@ -143,15 +143,15 @@ Enrollment for unattended use also sets and reads back
 keys do not expire during idle periods. Unknown keys still require Android's own
 authorization. This setting is independent of screen-lock credentials.
 
-Companion 1.2.35+ provides banking compatibility without root or banking-app
-patches. `banking-mode enable` saves the original settings and keeps ADB and the
-developer flag off between commands. On automatic ADB commands, the relay opens
-a bounded authorized debug window only when a known launcher/system package is
-foreground, executes the native command, and closes the window even on failure.
-It refuses the window while a banking or other user app is foreground. This
-retains shell, install, forward, pair, and sync functionality without claiming
-that a shell process survives `adb_enabled=0`; stock Samsung firmware kills it.
-`banking-mode disable` restores the exact saved values.
+Companion 1.2.37+ provides a persistent device-shell path without root or
+banking-app patches. `banking-mode enable` saves the original settings and keeps
+ADB and the developer flag off. Default `adb shell` and `adb exec-out` commands
+execute inside Companion without opening a debug window, regardless of the
+foreground app. Results report `connectionRoute: companion-device-shell`, the
+actual Companion application UID, and `requiresAdbd:false`. Protected operations
+must use their explicit ARLab adapter; do not describe the application UID as
+Android shell UID 2000. Explicit `--adb-route direct` or `companion` still selects
+native ADB and requires a listener. `banking-mode disable` restores the saved values.
 
 Automatic and Companion ADB routes prepare a recovered TLS-only listener for
 mobile use with a hardware-verified `adb tcpip 5555`, poll the actual TCP port,

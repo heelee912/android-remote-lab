@@ -66,8 +66,10 @@ dispatching the caller command. `adb-status` exposes `mobileRecoveryRunning` and
 testing reboot; the bootstrap depends on Android's implementation. The temporary
 hotspot closes after completion, failure, deadline or Companion disconnect.
 
-Companion 1.2.35+ adds a banking-compatibility mode with bounded native ADB
-windows. Enable it while an already-authorized ADB transport is available:
+Companion 1.2.37+ executes default `adb shell` and `adb exec-out` requests inside
+the authenticated Companion process. This persistent device-shell path does not
+start, repair, or contact Android's `adbd`, so Developer options, USB debugging,
+Wireless debugging, and all ADB listeners can remain off:
 
 ```powershell
 arlab device banking-mode enable --json
@@ -76,16 +78,15 @@ arlab device adb --json -- shell id
 ```
 
 Banking mode stores the exact original values, then turns off `adb_enabled`,
-`adb_wifi_enabled`, and the visible developer flag. Stock Samsung firmware kills
-shell-UID children when ADB is disabled, so the relay does not pretend a daemon
-survives that transition. When the foreground is a known launcher or system UI,
-an automatic ADB command opens the existing authorized listener, runs the full
-native ADB command, and closes debugging in a `finally` path. Ordinary foreground
-apps do not block ADB commands or file transfers; only a configured banking app
-currently in the foreground blocks the transient window. `banking-mode disable`
-restores the exact values saved on entry. This is rootless, does not patch a
-banking app, preserves install/forward/sync as well as shell commands, and keeps
-debugging off between commands and across reboot.
+`adb_wifi_enabled`, and the visible developer flag. Default shell commands and
+shared-storage file transfers continue through Companion without a transient
+debug window or a foreground-app restriction. The execution result identifies
+the real Companion application UID; it never claims Android shell UID 2000.
+Commands that require a protected Android identity use explicit ARLab adapters,
+such as Accessibility input, PackageInstaller, secure-settings access, and the
+shared-file channel. Explicit `--adb-route direct` or `--adb-route companion`
+still requests native ADB semantics and therefore requires an actual ADB listener.
+`banking-mode disable` restores the exact values saved on entry.
 
 On the automatic and Companion routes, a recovered TLS-only ADB listener is
 verified against the enrolled hardware and provisioned with `adb tcpip 5555`
@@ -185,13 +186,13 @@ transport probe. Paths in `files` commands are
 quoted for Android and must be absolute. Private app data retains Android's
 permissions: `run-as` requires a debuggable package or an existing privileged route.
 
-While banking mode is enabled, automatic routing sends only `shell` and
-`exec-out` through the privileged-shell channel. Use `--adb-route privileged`
-to require that route explicitly. The result reports
-`connectionRoute: privileged-shell`, so callers can distinguish it from direct
-or tunneled native ADB. Timeouts remain unconfirmed outcomes, binary output uses
-the existing exclusive `--output` contract, and command arguments are retained
-as an array rather than concatenated into a host shell command.
+Companion 1.2.37+ routes default `shell` and `exec-out` through the persistent
+device-shell channel whether banking mode is enabled or not. The result reports
+`connectionRoute: companion-device-shell`, `requiresAdbd:false`, and its actual
+application execution identity. Explicit native routes retain direct/tunneled
+ADB behavior. Timeouts remain unconfirmed outcomes, binary output uses the
+existing exclusive `--output` contract, and command arguments are retained as
+an array rather than concatenated into a host shell command.
 
 For PowerShell loops and arguments containing spaces, write a UTF-8 JSON array
 such as `["shell","echo","space value"]` to a local file and use

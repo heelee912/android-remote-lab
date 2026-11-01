@@ -14,6 +14,7 @@ final class CommandDispatcher {
     private final DisplayLease displayLease;
     private final TvRemoteControl tvRemoteControl;
     private final PrivilegedShellChannel privilegedShell;
+    private final PersistentDeviceShell persistentDeviceShell;
     private final BankingCompatibility bankingCompatibility;
 
     CommandDispatcher(Context context, DisplayLease displayLease) {
@@ -25,6 +26,7 @@ final class CommandDispatcher {
         this.displayLease = displayLease;
         this.tvRemoteControl = tvRemoteControl;
         this.privilegedShell = new PrivilegedShellChannel(context);
+        this.persistentDeviceShell = new PersistentDeviceShell();
         this.bankingCompatibility = new BankingCompatibility(context, privilegedShell);
     }
 
@@ -39,6 +41,20 @@ final class CommandDispatcher {
         if ("diagnostics".equals(command)) {
             return RendezvousService.diagnostics(context)
                     .put("leaseRemainingMillis", displayLease.remainingMillis());
+        }
+        if (command.startsWith("persistent_device_shell_")) {
+            assertConnectionReady();
+            switch (command) {
+                case "persistent_device_shell_status":
+                    return persistentDeviceShell.status();
+                case "persistent_device_shell_exec":
+                    return persistentDeviceShell.execute(
+                            args.getJSONArray("argv"),
+                            args.has("stdinBase64") ? args.getString("stdinBase64") : null,
+                            args.optLong("timeoutMillis", 60_000L));
+                default:
+                    throw new IllegalArgumentException("Unsupported persistent device shell command");
+            }
         }
         if (command.startsWith("privileged_shell_") || command.startsWith("banking_compatibility_")) {
             // Both capability stores live in device-protected storage and are required

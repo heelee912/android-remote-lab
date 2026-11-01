@@ -367,6 +367,23 @@ async function main() {
     second.socket.write(frame({ type: 'response', requestId: diagnosticCommand.requestId, seq: diagnosticCommand.seq,
       ok: true, result: { screenInteractive: false } }));
     assert.equal((await backgroundDiagnostic).status, 200);
+    second.socket.write(frame({ type: 'pong', versionCode: 53, keyguardLocked: true,
+      secureKeyguardLocked: true, screenInteractive: false, userUnlocked: true, accessibilityReady: false }));
+    const persistentShell = request(apiPort, token, 'POST', '/command', {
+      command: 'adb', owner, args: { argv: ['shell', 'getprop', 'ro.product.model'], timeoutMs: 10_000 },
+    });
+    const persistentCommand = await second.next();
+    assert.equal(persistentCommand.command, 'persistent_device_shell_exec',
+      'default shell must not open or repair adbd on a current Companion');
+    second.socket.write(frame({ type: 'response', requestId: persistentCommand.requestId,
+      seq: persistentCommand.seq, ok: true, result: {
+        exitCode: 0, stdoutBase64: Buffer.from('SM-A546S\n').toString('base64'), stderrBase64: '',
+        executionIdentity: { uid: 10345, kind: 'companion-application', requiresAdbd: false },
+      } }));
+    const persistentResult = await persistentShell;
+    assert.equal(persistentResult.status, 200);
+    assert.equal(persistentResult.body.result.connectionRoute, 'companion-device-shell');
+    assert.equal(persistentResult.body.result.executionIdentity.requiresAdbd, false);
     const backgroundInstall = request(apiPort, token, 'POST', '/command', {
       owner, command: 'install_status', args: { uploadId: '' },
     });
