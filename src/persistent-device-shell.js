@@ -6,7 +6,8 @@ const path = require('node:path');
 const maximumInputBytes = 8 * 1024 * 1024;
 
 function isPersistentDeviceShellRequest(request = {}) {
-  return Array.isArray(request.argv) && ['shell', 'exec-out', 'logcat'].includes(request.argv[0]);
+  return Array.isArray(request.argv)
+    && ['shell', 'exec-out', 'logcat', 'get-state', 'wait-for-device'].includes(request.argv[0]);
 }
 
 function commandArguments(request) {
@@ -65,6 +66,26 @@ async function executePersistentDeviceShell(request, invokeCompanion) {
     input = fs.readFileSync(request.inputFile);
   }
   try {
+    if (['get-state', 'wait-for-device'].includes(request.argv[0])) {
+      const response = await invokeCompanion('persistent_device_shell_status', {}, timeoutMs);
+      if (!response.ok) return response;
+      const status = response.result || {};
+      const executionIdentity = typeof status.executionIdentity === 'object'
+        ? status.executionIdentity
+        : { uid: status.uid, pid: status.pid, kind: status.executionIdentity || 'companion-application',
+          requiresAdbd: false };
+      return { ok: status.ready === true, result: {
+        transport: 'companion-device-shell',
+        connectionRoute: 'companion-device-shell',
+        adapter: 'companion-connection-state',
+        executionIdentity,
+        exitCode: status.ready === true ? 0 : 1,
+        signal: null,
+        stdout: status.ready === true && request.argv[0] === 'get-state' ? 'device\n' : '',
+        stderr: '',
+        ...(!status.ready ? { error: 'companion-device-shell-not-ready', outcome: 'confirmed-failed' } : {}),
+      } };
+    }
     const response = await invokeCompanion('persistent_device_shell_exec', {
       argv: commandArguments(request),
       timeoutMillis: timeoutMs,

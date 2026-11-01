@@ -12,7 +12,28 @@ test('recognizes shell commands without treating other adb commands as native sh
   assert.equal(isPersistentDeviceShellRequest({ argv: ['shell', 'getprop', 'ro.product.model'] }), true);
   assert.equal(isPersistentDeviceShellRequest({ argv: ['exec-out', 'cat', '/proc/version'] }), true);
   assert.equal(isPersistentDeviceShellRequest({ argv: ['logcat', '-d', '-t', '20'] }), true);
+  assert.equal(isPersistentDeviceShellRequest({ argv: ['get-state'] }), true);
+  assert.equal(isPersistentDeviceShellRequest({ argv: ['wait-for-device'] }), true);
   assert.equal(isPersistentDeviceShellRequest({ argv: ['install', 'app.apk'] }), false);
+});
+
+test('answers connection-state commands from the authenticated Companion without adbd', async () => {
+  const commands = [];
+  const invoke = async (command, args) => {
+    commands.push({ command, args });
+    return { ok: true, result: { ready: true, uid: 10413, pid: 321,
+      executionIdentity: 'companion-application', requiresAdbd: false } };
+  };
+  const state = await executePersistentDeviceShell({ argv: ['get-state'], timeoutMs: 1_000 }, invoke);
+  const waited = await executePersistentDeviceShell({ argv: ['wait-for-device'], timeoutMs: 1_000 }, invoke);
+  assert.equal(state.ok, true);
+  assert.equal(state.result.stdout, 'device\n');
+  assert.equal(state.result.adapter, 'companion-connection-state');
+  assert.equal(state.result.executionIdentity.requiresAdbd, false);
+  assert.equal(waited.ok, true);
+  assert.equal(waited.result.stdout, '');
+  assert.deepEqual(commands.map(({ command }) => command),
+    ['persistent_device_shell_status', 'persistent_device_shell_status']);
 });
 
 test('routes top-level adb logcat to the Companion process', async () => {

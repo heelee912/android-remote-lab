@@ -95,6 +95,11 @@ permissions `DUMP` and `READ_LOGS`; these grants survive after debugging is off.
 Companion 1.2.39+ also keeps top-level `adb logcat` on the persistent path and
 maps `exec-out screencap -p` plus common `input keyevent|tap|swipe` forms to the
 existing Accessibility service, without opening a debug listener.
+Companion 1.2.40+ answers `adb get-state` and `adb wait-for-device` from the
+authenticated Companion connection. Ordinary `adb install APK` and shared
+storage `adb push/pull` command forms use Companion's verified installer and
+byte-preserving shared-file channel; an explicit `--adb-route` retains native
+ADB behavior.
 
 On the automatic and Companion routes, a recovered TLS-only ADB listener is
 verified against the enrolled hardware and provisioned with `adb tcpip 5555`

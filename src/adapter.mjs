@@ -298,7 +298,26 @@ switch (command) {
         session: 'arlab session start --background', preflight: 'arlab doctor --background --json',
         readiness: 'BACKGROUND_READY', uiReadinessSeparate: true } }, json);
     break;
-  case 'adb': adbCommand(adbArguments(args)); break;
+  case 'adb': {
+    const argv = adbArguments(args);
+    const explicitNativeRoute = parsed.values.has('--adb-route');
+    if (!explicitNativeRoute && argv[0] === 'install' && argv.length === 2) {
+      emit(parseCompanionJson(['install', path.resolve(argv[1])]), json);
+      break;
+    }
+    if (!explicitNativeRoute && argv[0] === 'push' && argv.length === 3
+        && isPrimarySharedPath(argv[2])) {
+      sharedFileCommand('push', path.resolve(argv[1]), argv[2]);
+      break;
+    }
+    if (!explicitNativeRoute && argv[0] === 'pull' && argv.length === 3
+        && isPrimarySharedPath(argv[1])) {
+      sharedFileCommand('pull', argv[1], path.resolve(argv[2]));
+      break;
+    }
+    adbCommand(argv);
+    break;
+  }
   case 'adb-pair': {
     if (args.length !== 1 || !/^\d{6}$/.test(args[0])) fail('adb-pair requires the six-digit code shown on the selected device');
     const child = spawnSync(process.execPath, [cli, 'adb-pair', args[0]], {

@@ -108,6 +108,10 @@ tools is a confirmed failure even when the child process exits zero.
 Companion 1.2.39+ routes top-level `logcat` without `adbd` and maps
 `exec-out screencap -p` and common `input keyevent|tap|swipe` forms to
 Accessibility. Secure-window and secure-keyguard enforcement still applies.
+Companion 1.2.40+ derives `get-state`/`wait-for-device` from the authenticated
+Companion connection and maps ordinary `adb install` plus shared-storage
+`adb push`/`adb pull` forms to Companion-native APIs unless the caller selects
+an explicit native ADB route.
 
 `adb-status` reads the local listener without waking the display. `adb-status --repair` restores `adb_wifi_enabled` when the Companion holds `WRITE_SECURE_SETTINGS`; tunnel creation uses this grant automatically. Provision the grant through ADB when needed. Listener availability, PC authentication and screen state are separate results. Companion 1.2.1+ also uses a provisioned TCP listener (`adb tcpip 5555`), which survives Wi-Fi transitions until an ADB/phone restart. TCP mode listens on local interfaces with ADB-key authentication; the outer ARLab TLS encrypts remote traffic. Mobile-only TLS restoration after reboot depends on Android network behavior and device verification.
 

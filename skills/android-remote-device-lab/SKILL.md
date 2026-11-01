@@ -158,6 +158,10 @@ Companion 1.2.38+ adapts direct `settings get|put|delete` and
 Companion 1.2.39+ routes top-level `logcat` persistently and adapts
 `exec-out screencap -p` and common `input keyevent|tap|swipe` commands through
 Accessibility. Read the returned adapter and actual result before claiming success.
+Companion 1.2.40+ derives `get-state`/`wait-for-device` from the authenticated
+Companion connection and maps ordinary `adb install` plus shared-storage
+`adb push`/`adb pull` forms to Companion-native APIs. Use an explicit
+`--adb-route` only when native `adbd` behavior is intentionally required.
 
 Automatic and Companion ADB routes prepare a recovered TLS-only listener for
 mobile use with a hardware-verified `adb tcpip 5555`, poll the actual TCP port,
