@@ -889,7 +889,8 @@ const api = http.createServer(async (request, response) => {
           if (body.command === 'adb_tunnel_status' && result.ok) result.result.pcTunnel = {
             closed: tunnel.closed, lastError: tunnel.lastError, statistics: tunnel.statistics,
           };
-          if (body.command === 'adb' && !result.ok && tunnel.lastError) {
+          if (body.command === 'adb' && !result.ok && tunnel.lastError
+              && result.result?.connectionRoute === 'companion-tunnel') {
             result.result.tunnelError = tunnel.lastError;
             result.result.tunnelStatistics = tunnel.statistics;
           }
