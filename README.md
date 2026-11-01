@@ -88,6 +88,11 @@ shared-file channel. Explicit `--adb-route direct` or `--adb-route companion`
 still requests native ADB semantics and therefore requires an actual ADB listener.
 `banking-mode disable` restores the exact values saved on entry.
 
+Companion 1.2.38+ maps direct `settings get|put|delete` and
+`am get-current-user` commands to Android framework APIs, avoiding shell-tool
+cross-user checks. Provisioning may also grant the manifest-declared development
+permissions `DUMP` and `READ_LOGS`; these grants survive after debugging is off.
+
 On the automatic and Companion routes, a recovered TLS-only ADB listener is
 verified against the enrolled hardware and provisioned with `adb tcpip 5555`
 before the caller command. The relay polls the actual TCP listener after adbd

@@ -66,3 +66,16 @@ test('writes binary output exclusively', async () => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('does not report Android permission text with exit code zero as success', async () => {
+  const response = await executePersistentDeviceShell({
+    argv: ['shell', 'dumpsys', 'package'], timeoutMs: 1_000,
+  }, async () => ({ ok: true, result: {
+    exitCode: 0,
+    stdoutBase64: Buffer.from('Permission Denial: missing android.permission.DUMP\n').toString('base64'),
+    stderrBase64: '',
+  } }));
+  assert.equal(response.ok, false);
+  assert.equal(response.result.error, 'android-command-permission-denied');
+  assert.equal(response.result.outcome, 'confirmed-failed');
+});

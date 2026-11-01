@@ -25,6 +25,7 @@ function decodedExecution(result, request) {
     transport: 'companion-device-shell',
     connectionRoute: 'companion-device-shell',
     executionIdentity: result.executionIdentity || { kind: 'companion-application', requiresAdbd: false },
+    ...(result.adapter ? { adapter: result.adapter } : {}),
     exitCode: result.exitCode === null ? null : Number(result.exitCode),
     signal: null,
     ...(request.outputFile
@@ -35,6 +36,12 @@ function decodedExecution(result, request) {
     stderr: stderr.toString('utf8'),
     ...(result.error ? { error: result.error, outcome: result.outcome || 'confirmed-failed' } : {}),
   };
+  if (!execution.error && execution.exitCode === 0
+      && /(?:Permission Denial|java\.lang\.SecurityException|Security exception)/i
+        .test(`${execution.stdout || ''}\n${execution.stderr || ''}`)) {
+    execution.error = 'android-command-permission-denied';
+    execution.outcome = 'confirmed-failed';
+  }
   return { ok: !execution.error && execution.exitCode === 0, result: execution };
 }
 

@@ -26,7 +26,7 @@ final class CommandDispatcher {
         this.displayLease = displayLease;
         this.tvRemoteControl = tvRemoteControl;
         this.privilegedShell = new PrivilegedShellChannel(context);
-        this.persistentDeviceShell = new PersistentDeviceShell();
+        this.persistentDeviceShell = new PersistentDeviceShell(context);
         this.bankingCompatibility = new BankingCompatibility(context, privilegedShell);
     }
 

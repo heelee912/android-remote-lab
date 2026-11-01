@@ -152,6 +152,9 @@ actual Companion application UID, and `requiresAdbd:false`. Protected operations
 must use their explicit ARLab adapter; do not describe the application UID as
 Android shell UID 2000. Explicit `--adb-route direct` or `companion` still selects
 native ADB and requires a listener. `banking-mode disable` restores the saved values.
+Companion 1.2.38+ adapts direct `settings get|put|delete` and
+`am get-current-user` commands to Android framework APIs. Manifest-declared
+`DUMP` and `READ_LOGS` development grants can expand diagnostics after provisioning.
 
 Automatic and Companion ADB routes prepare a recovered TLS-only listener for
 mobile use with a hardware-verified `adb tcpip 5555`, poll the actual TCP port,

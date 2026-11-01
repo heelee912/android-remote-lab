@@ -102,6 +102,9 @@ run in Companion's authenticated application process without opening a native
 debug window. The result exposes the actual application UID and
 `requiresAdbd:false`; protected operations use explicit ARLab adapters. Explicit
 native ADB routes remain available when a real listener exists.
+Companion 1.2.38+ maps direct `settings get|put|delete` and
+`am get-current-user` to framework adapters. Permission-denial text from Android
+tools is a confirmed failure even when the child process exits zero.
 
 `adb-status` reads the local listener without waking the display. `adb-status --repair` restores `adb_wifi_enabled` when the Companion holds `WRITE_SECURE_SETTINGS`; tunnel creation uses this grant automatically. Provision the grant through ADB when needed. Listener availability, PC authentication and screen state are separate results. Companion 1.2.1+ also uses a provisioned TCP listener (`adb tcpip 5555`), which survives Wi-Fi transitions until an ADB/phone restart. TCP mode listens on local interfaces with ADB-key authentication; the outer ARLab TLS encrypts remote traffic. Mobile-only TLS restoration after reboot depends on Android network behavior and device verification.
 
