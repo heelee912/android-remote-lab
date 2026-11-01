@@ -6,12 +6,12 @@ const path = require('node:path');
 const maximumInputBytes = 8 * 1024 * 1024;
 
 function isPersistentDeviceShellRequest(request = {}) {
-  return Array.isArray(request.argv) && ['shell', 'exec-out'].includes(request.argv[0]);
+  return Array.isArray(request.argv) && ['shell', 'exec-out', 'logcat'].includes(request.argv[0]);
 }
 
 function commandArguments(request) {
   if (!isPersistentDeviceShellRequest(request)) throw new Error('persistent-device-shell-command-required');
-  const command = request.argv.slice(1);
+  const command = request.argv[0] === 'logcat' ? request.argv : request.argv.slice(1);
   if (!command.length) throw new Error('persistent-device-shell-command-required');
   return command.length === 1 ? ['/system/bin/sh', '-c', command[0]] : command;
 }

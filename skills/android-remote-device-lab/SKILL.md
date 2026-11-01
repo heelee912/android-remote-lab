@@ -155,6 +155,9 @@ native ADB and requires a listener. `banking-mode disable` restores the saved va
 Companion 1.2.38+ adapts direct `settings get|put|delete` and
 `am get-current-user` commands to Android framework APIs. Manifest-declared
 `DUMP` and `READ_LOGS` development grants can expand diagnostics after provisioning.
+Companion 1.2.39+ routes top-level `logcat` persistently and adapts
+`exec-out screencap -p` and common `input keyevent|tap|swipe` commands through
+Accessibility. Read the returned adapter and actual result before claiming success.
 
 Automatic and Companion ADB routes prepare a recovered TLS-only listener for
 mobile use with a hardware-verified `adb tcpip 5555`, poll the actual TCP port,

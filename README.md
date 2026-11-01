@@ -92,6 +92,9 @@ Companion 1.2.38+ maps direct `settings get|put|delete` and
 `am get-current-user` commands to Android framework APIs, avoiding shell-tool
 cross-user checks. Provisioning may also grant the manifest-declared development
 permissions `DUMP` and `READ_LOGS`; these grants survive after debugging is off.
+Companion 1.2.39+ also keeps top-level `adb logcat` on the persistent path and
+maps `exec-out screencap -p` plus common `input keyevent|tap|swipe` forms to the
+existing Accessibility service, without opening a debug listener.
 
 On the automatic and Companion routes, a recovered TLS-only ADB listener is
 verified against the enrolled hardware and provisioned with `adb tcpip 5555`

@@ -100,11 +100,73 @@ final class PersistentDeviceShell {
 
     private JSONObject executeAndroidAdapter(List<String> arguments) throws Exception {
         if ("settings".equals(arguments.get(0))) return executeSettings(arguments);
+        if ("screencap".equals(arguments.get(0)) && arguments.size() <= 2
+                && (arguments.size() == 1 || "-p".equals(arguments.get(1)))) {
+            return executeScreenshot();
+        }
+        if ("input".equals(arguments.get(0))) return executeInput(arguments);
         if (arguments.size() == 2 && "am".equals(arguments.get(0))
                 && "get-current-user".equals(arguments.get(1))) {
             return succeeded(currentUserId() + "\n", "android-current-user");
         }
         return null;
+    }
+
+    private JSONObject executeScreenshot() throws Exception {
+        ControlAccessibilityService accessibility = ControlAccessibilityService.getInstance();
+        if (accessibility == null) {
+            return failed("persistent-screenshot-accessibility-unavailable",
+                    "confirmed-failed", identity());
+        }
+        return succeededBase64(accessibility.screenshotPngBase64(), "accessibility-screenshot");
+    }
+
+    private JSONObject executeInput(List<String> arguments) throws Exception {
+        ControlAccessibilityService accessibility = ControlAccessibilityService.getInstance();
+        if (accessibility == null) {
+            return failed("persistent-input-accessibility-unavailable", "confirmed-failed", identity());
+        }
+        if (arguments.size() == 3 && "keyevent".equals(arguments.get(1))) {
+            String action = keyEventAction(arguments.get(2));
+            if (action == null) {
+                return failed("persistent-input-keyevent-unsupported", "confirmed-failed", identity());
+            }
+            return accessibility.performGlobal(action, null)
+                    ? succeeded("", "accessibility-input")
+                    : failed("persistent-input-not-performed", "confirmed-failed", identity());
+        }
+        if (arguments.size() == 4 && "tap".equals(arguments.get(1))) {
+            return accessibility.tap(Float.parseFloat(arguments.get(2)),
+                    Float.parseFloat(arguments.get(3)), 2_000L)
+                    ? succeeded("", "accessibility-input")
+                    : failed("persistent-input-not-performed", "confirmed-failed", identity());
+        }
+        if ((arguments.size() == 6 || arguments.size() == 7)
+                && "swipe".equals(arguments.get(1))) {
+            long durationMillis = arguments.size() == 7
+                    ? Long.parseLong(arguments.get(6)) : 350L;
+            return accessibility.swipe(
+                    Float.parseFloat(arguments.get(2)), Float.parseFloat(arguments.get(3)),
+                    Float.parseFloat(arguments.get(4)), Float.parseFloat(arguments.get(5)),
+                    durationMillis)
+                    ? succeeded("", "accessibility-input")
+                    : failed("persistent-input-not-performed", "confirmed-failed", identity());
+        }
+        return failed("persistent-input-command-unsupported", "confirmed-failed", identity());
+    }
+
+    private static String keyEventAction(String keyCode) {
+        switch (keyCode.toUpperCase(java.util.Locale.ROOT)) {
+            case "3": case "KEYCODE_HOME": return "home";
+            case "4": case "KEYCODE_BACK": return "back";
+            case "187": case "KEYCODE_APP_SWITCH": return "recents";
+            case "19": case "KEYCODE_DPAD_UP": return "dpad_up";
+            case "20": case "KEYCODE_DPAD_DOWN": return "dpad_down";
+            case "21": case "KEYCODE_DPAD_LEFT": return "dpad_left";
+            case "22": case "KEYCODE_DPAD_RIGHT": return "dpad_right";
+            case "23": case "66": case "KEYCODE_DPAD_CENTER": case "KEYCODE_ENTER": return "dpad_center";
+            default: return null;
+        }
     }
 
     private JSONObject executeSettings(List<String> arguments) throws Exception {
@@ -175,6 +237,15 @@ final class PersistentDeviceShell {
                 .put("exitCode", 0)
                 .put("stdoutBase64", Base64.encodeToString(
                         stdout.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP))
+                .put("stderrBase64", "")
+                .put("adapter", adapter)
+                .put("executionIdentity", identity());
+    }
+
+    private JSONObject succeededBase64(String stdoutBase64, String adapter) throws Exception {
+        return new JSONObject()
+                .put("exitCode", 0)
+                .put("stdoutBase64", stdoutBase64)
                 .put("stderrBase64", "")
                 .put("adapter", adapter)
                 .put("executionIdentity", identity());

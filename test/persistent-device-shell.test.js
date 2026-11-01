@@ -11,7 +11,18 @@ const { executePersistentDeviceShell, isPersistentDeviceShellRequest } = require
 test('recognizes shell commands without treating other adb commands as native shell', () => {
   assert.equal(isPersistentDeviceShellRequest({ argv: ['shell', 'getprop', 'ro.product.model'] }), true);
   assert.equal(isPersistentDeviceShellRequest({ argv: ['exec-out', 'cat', '/proc/version'] }), true);
+  assert.equal(isPersistentDeviceShellRequest({ argv: ['logcat', '-d', '-t', '20'] }), true);
   assert.equal(isPersistentDeviceShellRequest({ argv: ['install', 'app.apk'] }), false);
+});
+
+test('routes top-level adb logcat to the Companion process', async () => {
+  let argv;
+  await executePersistentDeviceShell({ argv: ['logcat', '-d', '-t', '20'], timeoutMs: 1_000 },
+    async (_command, args) => {
+      argv = args.argv;
+      return { ok: true, result: { exitCode: 0, stdoutBase64: '', stderrBase64: '' } };
+    });
+  assert.deepEqual(argv, ['logcat', '-d', '-t', '20']);
 });
 
 test('executes through Companion without an adbd route', async () => {
